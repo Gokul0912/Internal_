@@ -1,0 +1,7 @@
+:root {
+  --font-cooveb-body: "Segoe UI", sans-serif;
+  --font-cooveb-display: "Segoe UI", sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; }
+button { font: inherit; }
