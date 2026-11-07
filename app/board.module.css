@@ -75,6 +75,11 @@
 }
 
 .signIn h1 { font-size: clamp(25px, 4vw, 34px); letter-spacing: -.045em; }
+.profileButton { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 48px; margin-bottom: 12px; padding: 6px; border: 0; border-radius: 9px; background: transparent; color: #192532; text-align: left; }
+.profileButton:hover { background: #e9f2ef; }
+.workspaceInfo .profileButton > span:last-child { display: grid; min-width: 0; gap: 2px; }
+.profileButton strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profileButton small { color: #52616e; font-size: 11px; }
 .googleButton { width: 100%; margin-top: 22px; display: flex; justify-content: center; align-items: center; gap: 10px; min-height: 46px; padding: 10px 14px; border: 1px solid #9baab5; border-radius: 9px; background: white; color: #192532; font-weight: 650; }
 .googleButton:hover:enabled { background: #f2f6f5; }
 .signIn .authDivider { margin-top: 18px; text-align: center; color: #52616e; font-size: 13px; }

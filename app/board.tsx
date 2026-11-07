@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Building2, Check, ChevronRight, Circle, CircleCheck, Inbox, Layers3, LayoutList, Paperclip, Plus, X } from "lucide-react";
 import Clients from "./clients";
+import ProfileOption from "./profile";
 import { attachmentTypes, maxAttachmentBytes, readAttachments, removeAttachments, saveAttachments } from "./board-attachments";
 import styles from "./board.module.css";
 import { createClient } from "./supabase-client";
@@ -458,6 +459,7 @@ export default function Board({ shared }: { shared: boolean }) {
         </div>
       </div>
       <div className={styles.workspaceInfo}>
+        <ProfileOption key={userId ?? "local"} db={db} userId={userId} email={user?.email} />
         {db ? <button className={styles.secondary} onClick={async () => {
           const result = await db.auth.signOut();
           if (result.error) setError("Couldn’t sign out.");
