@@ -591,12 +591,12 @@ export default function Board({ shared }: { shared: boolean }) {
               <button type="button" onClick={() => { manageMenu.current?.hidePopover(); projectDialog.current?.showModal(); }}>New project</button>
               <button type="button" onClick={() => { manageMenu.current?.hidePopover(); sectionDialog.current?.showModal(); }}>Add report type</button>
             </div>
-        {(!db || admin) && <CleanupCatalog>
-          {([['project', projects], ['type', reportTypes]] as const).map(([kind, names]) => <section className={styles.catalogGroup} key={kind}><h3>{kind === "project" ? "Projects" : "Report types"}</h3>{names.map(name => {
+        <CleanupCatalog label={db && !admin ? "Manage projects" : "Manage lists"}>
+          {([['project', projects], ['type', reportTypes]] as const).filter(([kind]) => kind === "project" || !db || admin).map(([kind, names]) => <section className={styles.catalogGroup} key={kind}><h3>{kind === "project" ? "Projects" : "Report types"}</h3>{names.map(name => {
             const used = reports.some(report => (kind === "project" ? report.project : report.type)?.toLowerCase() === name.toLowerCase());
             return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "In use" : "Unused"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description="This permanently deletes the unused entry." disabled={used} onConfirm={() => deleteCatalog(kind, name)} /></div>;
           })}</section>)}
-        </CleanupCatalog>}
+        </CleanupCatalog>
           </div>
         </div>
         {filter === "Trash" && <p className={styles.trashHelp}>Restore reports within 30 days. Only admins can permanently delete them; attached files must be removed first. Reports are not automatically purged.</p>}

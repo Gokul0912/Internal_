@@ -35,10 +35,30 @@ try {
   }
   // Re-running the cleanup migration must be safe.
   await db.exec(await readFile("supabase/migrations/20261107170000_record_cleanup.sql", "utf8"));
+  const projectPermissionMigration = await readFile("supabase/migrations/20261108090000_member_project_deletion.sql", "utf8");
+  await db.exec(projectPermissionMigration);
+  await db.exec(projectPermissionMigration);
+  const developer = "77777777-7777-4777-8777-777777777777";
+  await db.query("insert into public.hub_members values($1,'Developer','Developer')", [developer]);
+  for (const member of [author, other, admin, viewer, developer]) {
+    await actor(member);
+    await db.exec("insert into public.board_projects(name) values('Unused')");
+    await db.exec("select public.delete_catalog_entry('project','Unused')");
+    assert.equal((await db.query("select count(*)::int as count from public.board_projects where name='Unused'")).rows[0].count, 0);
+    if (member !== admin) {
+      await rejected("select public.delete_catalog_entry('type','Update report')");
+      await rejected("select public.delete_catalog_entry('product','Unused')");
+    }
+  }
+  await actor("88888888-8888-4888-8888-888888888888");
+  await rejected("select public.delete_catalog_entry('project','Unused')");
+  await db.exec("reset role; set role anon");
+  await rejected("select public.delete_catalog_entry('project','Unused')");
   await actor(author);
   await db.query("insert into public.board_reports(id,title,details,type,project) values($1,'Report','','Bug report','Project')", [report]);
   await rejected("update public.board_reports set deleted_at=now() where id=$1", [report]);
   await actor(other);
+  await rejected("select public.delete_catalog_entry('project','Project')");
   await rejected("select public.cleanup_report($1,'trash')", [report]);
   await actor(viewer);
   await rejected("select public.cleanup_report($1,'trash')", [report]);
@@ -88,5 +108,5 @@ try {
   await rejected("select public.cleanup_report($1,'remove_attachment','missing')", [report]);
   await db.query("select public.cleanup_report($1,'remove_attachment',$2)", [report, path]);
   assert.equal((await db.query("select attachments from public.board_reports where id=$1", [report])).rows[0].attachments.length, 0);
-  console.log("PASS: migration rerun, author/other/Viewer/Admin permissions, no direct trash writes, restore window, linked catalog protection, archived-client deletion.");
+  console.log("PASS: all member roles can delete unused projects; outsiders/anonymous and non-Admin product/type deletion denied; migration rerun, trash permissions, restore window, linked catalog protection, archived-client deletion.");
 } finally { await db.close(); }

@@ -3,7 +3,8 @@
 Apply `supabase/migrations/20261107170000_record_cleanup.sql` in Supabase SQL Editor after the earlier migrations. It is safe to rerun. Deploy the matching frontend afterward. The migration does not delete existing records.
 
 - Report author or Admin (excluding Viewer accounts): move to Trash, restore within 30 days, remove attachments.
-- Admin: permanently delete reports in Trash after removing their attachments; permanently delete archived clients; delete unused projects, products, and report types.
+- All signed-in workspace members, including Viewers: delete unused projects after applying `20261108090000_member_project_deletion.sql`. Projects linked to reports, including Trash, stay protected.
+- Admin: permanently delete reports in Trash after removing their attachments; permanently delete archived clients; delete unused products and report types.
 - Admin, Developer, Team Member: archive and restore clients, using the existing client update policies from `20261107160000_client_team_permissions.sql`.
 - Trash entries continue to protect their project/type references. Archived clients continue to protect linked products.
 - Undo lasts six seconds; reports remain accessible through Trash afterward. No scheduled purge is installed. Records beyond the restore window remain in Trash until an Admin removes them.
