@@ -38,7 +38,7 @@ export function CleanupCatalog({ children, label = "Manage lists" }: { children:
     <button className={styles.secondary} type="button" onClick={() => dialog.current?.showModal()}>{label}</button>
     <dialog ref={dialog} className={styles.dialog} aria-label={label}>
       <div className={styles.dialogHead}><h2>{label}</h2><button autoFocus type="button" aria-label="Close list manager" onClick={() => dialog.current?.close()}><X size={20} /></button></div>
-      <p className={styles.reportMeta}>Only unused entries can be deleted. Archived clients and reports in Trash still count as linked records.</p>
+      <p className={styles.reportMeta}>Active reports protect their projects. Reports in Trash won’t block project deletion. Products and report types must have no linked records.</p>
       {children}
     </dialog>
   </>;

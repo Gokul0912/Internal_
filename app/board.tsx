@@ -17,7 +17,7 @@ const sectionsKey = "product-hub.sections.v1";
 const typesKey = "product-log.report-types.v2";
 const projectsKey = "product-hub.projects.v1";
 type StoredFile = { path: string; name: string; type: string };
-type Report = { id: string; title: string; details: string; done: boolean; deleted_at?: string | null; attachmentCount?: number; type?: string; project?: string; attachments?: StoredFile[]; author?: string; posted_by?: string; created_at?: string; updated_by?: string; updated_at?: string };
+type Report = { id: string; title: string; details: string; done: boolean; deleted_at?: string | null; attachmentCount?: number; type?: string; project?: string | null; attachments?: StoredFile[]; author?: string; posted_by?: string; created_at?: string; updated_by?: string; updated_at?: string };
 const key = "product-hub.board.v1";
 const filters = ["All", "Open", "Done", "Trash"] as const;
 const statusIcons = { All: LayoutList, Open: Circle, Done: CircleCheck, Trash: Trash2 };
@@ -159,9 +159,12 @@ export default function Board({ shared }: { shared: boolean }) {
     }
     function load() {
       try {
-        setReports(readReports());
+        const localReports = readReports();
+        const localProjects = Array.from(new Set([...readProjects(), ...localReports.flatMap(report => report.project ? [report.project] : [])]));
+        localStorage.setItem(projectsKey, JSON.stringify(localProjects));
+        setReports(localReports);
         setReportTypes(readSections());
-        setSavedProjects(readProjects());
+        setSavedProjects(localProjects);
         setReady(true);
         setError("");
       } catch {
@@ -336,6 +339,11 @@ export default function Board({ shared }: { shared: boolean }) {
       } else if (db) {
         throw new Error("Sign-in required");
       } else {
+        const registered = readProjects();
+        if (!registered.includes(projectName)) {
+          localStorage.setItem(projectsKey, JSON.stringify([...registered, projectName]));
+          setSavedProjects(current => Array.from(new Set([...current, projectName])));
+        }
         if (files.length) await saveAttachments(id, files);
         if (!update(current => {
           const project = current.find(report => report.project?.toLowerCase() === projectName.toLowerCase())?.project ?? projectName;
@@ -401,7 +409,7 @@ export default function Board({ shared }: { shared: boolean }) {
   const activeReports = reports.filter(report => !report.deleted_at);
   const completed = activeReports.filter(report => report.done).length;
   const statusCounts = { All: activeReports.length, Open: activeReports.length - completed, Done: completed, Trash: reports.length - activeReports.length };
-  const projects = Array.from(new Set([...savedProjects, ...reports.flatMap(report => report.project ? [report.project] : [])])).sort((a, b) => a.localeCompare(b));
+  const projects = Array.from(new Set([...savedProjects, ...activeReports.flatMap(report => report.project ? [report.project] : [])])).sort((a, b) => a.localeCompare(b));
 
   async function manageReport(report: Report, action: "trash" | "restore" | "purge") {
     try {
@@ -415,7 +423,7 @@ export default function Board({ shared }: { shared: boolean }) {
         if (action === "restore" && stored.deleted_at && Date.now() - new Date(stored.deleted_at).getTime() > 30 * 86400000) throw new Error("The 30-day restore period has ended.");
         if (action === "purge" && !stored.deleted_at) throw new Error("Move this report to Trash first.");
         if (action === "purge" && (stored.attachmentCount ?? 0) > 0) throw new Error("Remove attachments before permanently deleting this report.");
-        if (!update(current => action === "purge" ? current.filter(item => item.id !== report.id) : current.map(item => item.id === report.id ? { ...item, deleted_at: action === "trash" ? item.deleted_at ?? new Date().toISOString() : null } : item))) throw new Error("Couldn’t save the change.");
+        if (!update(current => action === "purge" ? current.filter(item => item.id !== report.id) : current.map(item => item.id === report.id ? { ...item, project: action === "restore" && item.project && !projects.includes(item.project) ? null : item.project, deleted_at: action === "trash" ? item.deleted_at ?? new Date().toISOString() : null } : item))) throw new Error("Couldn’t save the change.");
       }
       detailDialog.current?.close();
       notify(action === "trash" ? "Report moved to Trash." : action === "restore" ? "Report restored." : "Report permanently deleted.", action === "trash" ? () => { void manageReport(report, "restore").catch(() => {}); } : undefined);
@@ -430,7 +438,12 @@ export default function Board({ shared }: { shared: boolean }) {
       const result = await db.rpc("delete_catalog_entry", { p_kind: kind, p_name: name });
       if (result.error) throw new Error(result.error.message);
     } else {
-      if (readReports().some(report => (kind === "project" ? report.project : report.type)?.toLowerCase() === name.toLowerCase())) throw new Error("This entry is still linked to reports, including Trash.");
+      if (readReports().some(report => (kind !== "project" || !report.deleted_at) && (kind === "project" ? report.project : report.type)?.toLowerCase() === name.toLowerCase())) throw new Error(kind === "project" ? "Move active reports to another project first." : "This type is still linked to reports, including Trash.");
+      if (kind === "project") {
+        const remaining = readReports().map(report => report.deleted_at && report.project?.toLowerCase() === name.toLowerCase() ? { ...report, project: null } : report);
+        localStorage.setItem(key, JSON.stringify(remaining));
+        setReports(remaining);
+      }
       localStorage.setItem(kind === "project" ? projectsKey : typesKey, JSON.stringify((kind === "project" ? readProjects() : readSections()).filter(item => item !== name)));
     }
     if (kind === "project") { setSavedProjects(current => current.filter(item => item !== name)); setProjectFilter(""); }
@@ -593,8 +606,8 @@ export default function Board({ shared }: { shared: boolean }) {
             </div>
         <CleanupCatalog label={db && !admin ? "Manage projects" : "Manage lists"}>
           {([['project', projects], ['type', reportTypes]] as const).filter(([kind]) => kind === "project" || !db || admin).map(([kind, names]) => <section className={styles.catalogGroup} key={kind}><h3>{kind === "project" ? "Projects" : "Report types"}</h3>{names.map(name => {
-            const used = reports.some(report => (kind === "project" ? report.project : report.type)?.toLowerCase() === name.toLowerCase());
-            return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "In use" : "Unused"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description="This permanently deletes the unused entry." disabled={used} onConfirm={() => deleteCatalog(kind, name)} /></div>;
+            const used = reports.some(report => (kind !== "project" || !report.deleted_at) && (kind === "project" ? report.project : report.type)?.toLowerCase() === name.toLowerCase());
+            return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "In use" : "Ready to delete"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description={kind === "project" ? "Delete this project. Reports in Trash are kept; restoring them later leaves their project unassigned." : "This permanently deletes the unused entry."} disabled={used} onConfirm={() => deleteCatalog(kind, name)} /></div>;
           })}</section>)}
         </CleanupCatalog>
           </div>

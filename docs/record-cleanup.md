@@ -6,7 +6,7 @@ Apply `supabase/migrations/20261107170000_record_cleanup.sql` in Supabase SQL Ed
 - All signed-in workspace members, including Viewers: delete unused projects after applying `20261108090000_member_project_deletion.sql`. Projects linked to reports, including Trash, stay protected.
 - Admin: permanently delete reports in Trash after removing their attachments; permanently delete archived clients; delete unused products and report types.
 - Admin, Developer, Team Member: archive and restore clients, using the existing client update policies from `20261107160000_client_team_permissions.sql`.
-- Trash entries continue to protect their project/type references. Archived clients continue to protect linked products.
+- After applying `20261108093000_delete_projects_with_trashed_reports.sql`, projects can be deleted when only reports in Trash reference them. Reports and attachments are preserved. Restoring one leaves its project unassigned if the project no longer exists. Active reports still block deletion; Trash still protects report types. Archived clients protect linked products.
 - Undo lasts six seconds; reports remain accessible through Trash afterward. No scheduled purge is installed. Records beyond the restore window remain in Trash until an Admin removes them.
 - Attachment removal first commits the report metadata change, then removes the detached storage object. If storage cleanup fails, the app displays an explicit error; the private detached file must be cleaned by an administrator. Attached objects cannot be deleted through the cleanup storage policy.
 

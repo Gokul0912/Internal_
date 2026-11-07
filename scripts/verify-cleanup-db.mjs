@@ -38,6 +38,9 @@ try {
   const projectPermissionMigration = await readFile("supabase/migrations/20261108090000_member_project_deletion.sql", "utf8");
   await db.exec(projectPermissionMigration);
   await db.exec(projectPermissionMigration);
+  const trashProjectMigration = await readFile("supabase/migrations/20261108093000_delete_projects_with_trashed_reports.sql", "utf8");
+  await db.exec(trashProjectMigration);
+  await db.exec(trashProjectMigration);
   const developer = "77777777-7777-4777-8777-777777777777";
   await db.query("insert into public.hub_members values($1,'Developer','Developer')", [developer]);
   for (const member of [author, other, admin, viewer, developer]) {
@@ -65,8 +68,15 @@ try {
   await actor(author);
   await db.query("select public.cleanup_report($1,'trash')", [report]);
   await rejected("select public.cleanup_report($1,'purge')", [report]);
+  await actor(viewer);
+  await db.exec("select public.delete_catalog_entry('project','Project')");
+  assert.equal((await db.query("select count(*)::int as count from public.board_reports where id=$1 and deleted_at is not null", [report])).rows[0].count, 1);
+  await actor(author);
   await db.query("select public.cleanup_report($1,'restore')", [report]);
   assert.equal((await db.query("select deleted_at from public.board_reports where id=$1", [report])).rows[0].deleted_at, null);
+  assert.equal((await db.query("select project from public.board_reports where id=$1", [report])).rows[0].project, null);
+  assert.equal((await db.query("select count(*)::int as count from public.board_projects where name='Project'")).rows[0].count, 0);
+  await db.query("update public.board_reports set project='Project' where id=$1", [report]);
   await actor(admin);
   await rejected("select public.delete_catalog_entry('project','Project')");
   await rejected("select public.delete_catalog_entry('type','Bug report')");
@@ -102,11 +112,15 @@ try {
   await db.query("select public.cleanup_report($1,'trash')", [report]);
   await actor(admin);
   await rejected("select public.cleanup_report($1,'purge')", [report]);
+  await actor(viewer);
+  await db.exec("select public.delete_catalog_entry('project','Project')");
+  assert.equal((await db.query("select attachments from public.board_reports where id=$1", [report])).rows[0].attachments.length, 1);
   await actor(other);
   await rejected("select public.cleanup_report($1,'remove_attachment',$2)", [report, path]);
   await actor(author);
   await rejected("select public.cleanup_report($1,'remove_attachment','missing')", [report]);
   await db.query("select public.cleanup_report($1,'remove_attachment',$2)", [report, path]);
   assert.equal((await db.query("select attachments from public.board_reports where id=$1", [report])).rows[0].attachments.length, 0);
+  assert.equal((await db.query("select count(*)::int as count from public.board_projects where name='Project'")).rows[0].count, 0);
   console.log("PASS: all member roles can delete unused projects; outsiders/anonymous and non-Admin product/type deletion denied; migration rerun, trash permissions, restore window, linked catalog protection, archived-client deletion.");
 } finally { await db.close(); }
