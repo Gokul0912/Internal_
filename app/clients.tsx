@@ -5,6 +5,7 @@ import { Building2, ChevronRight, Plus, X } from "lucide-react";
 import type { createClient } from "./supabase-client";
 import styles from "./board.module.css";
 import { ListSkeleton, MotionResults, Notice, useNotice } from "./ui-feedback";
+import { CleanupCatalog, ConfirmAction } from "./cleanup-controls";
 
 type Contact = { name: string; role: string; email: string; phone: string };
 type Client = { id: string; company: string; website: string; address: string; notes: string; archived: boolean; products: string[]; contacts: Contact[] };
@@ -24,7 +25,7 @@ function websiteUrl(value: string) {
   } catch { return undefined; }
 }
 
-export default function Clients({ db, canManage }: { db: ReturnType<typeof createClient> | null; canManage: boolean }) {
+export default function Clients({ db, canManage, admin }: { db: ReturnType<typeof createClient> | null; canManage: boolean; admin: boolean }) {
   const [data, setData] = useState<Data>({ clients: [], products: [] });
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
@@ -41,6 +42,47 @@ export default function Clients({ db, canManage }: { db: ReturnType<typeof creat
   const detail = useRef<HTMLDialogElement>(null);
   const productDialog = useRef<HTMLDialogElement>(null);
   const canEdit = !db || canManage;
+
+  async function archiveClient(client: Client, archived: boolean) {
+    try {
+      let record = { ...client, archived };
+      if (db) {
+        const result = await db.from("clients").update({ archived }).eq("id", client.id).select().single();
+        if (result.error) throw new Error(result.error.message);
+        record = result.data as Client;
+      }
+      const current = db ? data : readData();
+      const next = { ...current, clients: current.clients.map(item => item.id === client.id ? record : item) };
+      if (!db) localStorage.setItem(storageKey, JSON.stringify(next));
+      setData(next);
+      detail.current?.close();
+      notify(archived ? "Client archived." : "Client restored.", archived ? () => { void archiveClient(record, false).catch(() => {}); } : undefined);
+    } catch (failure) { setError("Couldn’t update client status. Try again."); throw failure; }
+  }
+
+  async function deleteClient(client: Client) {
+    if (db) {
+      const result = await db.rpc("delete_archived_client", { p_id: client.id });
+      if (result.error) throw new Error(result.error.message);
+    }
+    const current = db ? data : readData();
+    if (!current.clients.find(item => item.id === client.id)?.archived) throw new Error("Archive this client first.");
+    const next = { ...current, clients: current.clients.filter(item => item.id !== client.id) };
+    if (!db) localStorage.setItem(storageKey, JSON.stringify(next));
+    setData(next); detail.current?.close(); notify("Client permanently deleted.");
+  }
+
+  async function deleteProduct(name: string) {
+    const current = db ? data : readData();
+    if (current.clients.some(client => client.products.includes(name))) throw new Error("This product is still linked to clients.");
+    if (db) {
+      const result = await db.rpc("delete_catalog_entry", { p_kind: "product", p_name: name });
+      if (result.error) throw new Error(result.error.message);
+    }
+    const next = { ...current, products: current.products.filter(item => item !== name) };
+    if (!db) localStorage.setItem(storageKey, JSON.stringify(next));
+    setData(next); setProduct(""); notify("Unused product deleted.");
+  }
 
   useEffect(() => {
     let active = true;
@@ -147,6 +189,10 @@ export default function Clients({ db, canManage }: { db: ReturnType<typeof creat
     <header className={styles.hero}><div><h1>Clients</h1><p>The people and companies behind your products.</p></div>
       {canEdit && <button className={styles.primary} disabled={!ready} onClick={() => openEditor(null)}><Plus size={18} /> Add client</button>}
     </header>
+    {(!db || admin) && <div className={styles.catalogToolbar}><CleanupCatalog label="Manage products"><section className={styles.catalogGroup}><h3>Products</h3>{data.products.length ? data.products.map(name => {
+      const used = data.clients.some(client => client.products.includes(name));
+      return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "Linked to clients" : "Unused"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description="This permanently deletes this unused product." disabled={used} onConfirm={() => deleteProduct(name)} /></div>;
+    }) : <p>No products yet.</p>}</section></CleanupCatalog></div>}
     {!canEdit && <p className={styles.clientSummary}>You have view-only access. Ask a workspace admin to update client details.</p>}
     <div className={styles.clientSummary}><span><strong>{data.clients.filter(client => !client.archived).length}</strong> active {data.clients.filter(client => !client.archived).length === 1 ? "client" : "clients"}</span><span><strong>{data.products.length}</strong> {data.products.length === 1 ? "product" : "products"}</span></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
@@ -218,6 +264,8 @@ export default function Clients({ db, canManage }: { db: ReturnType<typeof creat
         <h3>Address</h3><p className={styles.description}>{selected.address || "No address added."}</p>
         <h3>Internal notes</h3><p className={styles.description}>{selected.notes || "No notes added."}</p>
         {canEdit && <button className={styles.secondary} onClick={() => openEditor(selected)}>Edit client</button>}
+        {canEdit && (selected.archived ? <button className={styles.secondary} onClick={() => void archiveClient(selected, false).catch(() => {})}>Restore client</button> : <ConfirmAction label="Archive client" title="Archive this client?" description="The client stays available under Archived and can be restored at any time." onConfirm={() => archiveClient(selected, true)} />)}
+        {selected.archived && (!db || admin) && <ConfirmAction label="Delete permanently" title="Permanently delete client?" description="All company and contact details will be removed. This cannot be undone." onConfirm={() => deleteClient(selected)} />}
       </div>}
     </dialog>
   </>;

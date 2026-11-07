@@ -1684,3 +1684,20 @@
   .shell *,.shell *::before,.shell *::after { animation:none!important; transition:none!important; }
   .primary:active:enabled,.secondary:active:enabled,.googleButton:active:enabled,.filters button:active svg,.statusTabs button:active svg { transform:none; }
 }
+
+/* Cleanup actions stay visually secondary until explicitly confirmed. */
+.danger { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:8px 12px; border:1px solid #dcbcb6; border-radius:8px; background:#fff; color:#922f28; font-weight:600; font-size:13px; }
+.danger:hover:enabled { background:#fff2ef; }
+.catalogToolbar { display:flex; justify-content:flex-end; padding:12px 20px; }
+.catalogGroup { margin-top:24px; }
+.catalogGroup h3 { font-size:16px; margin-bottom:12px; }
+.catalogRow { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 0; border-top:1px solid var(--line); }
+.catalogRow>span { min-width:0; overflow-wrap:anywhere; }
+.catalogRow small { display:block; color:var(--muted); font-size:12px; }
+.trashHelp { padding:0 20px 16px; color:var(--muted); font-size:13px; }
+.notice button.undoButton { width:auto; padding-inline:8px; text-decoration:underline; }
+.attachments figcaption { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+@media(max-width:520px) { .toolbar>.statusTabs { flex-wrap:wrap; justify-content:flex-start; } .catalogRow { gap:8px; } }
+.toolbarActions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.dialog form>p.error { color:#922f28; }
+@media(max-width:520px) { .statusTabs button>svg { display:none; } .toolbar>.statusTabs { flex-wrap:nowrap; } }

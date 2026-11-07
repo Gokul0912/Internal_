@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Building2, Check, ChevronDown, ChevronRight, Circle, CircleCheck, Folder, Inbox, LayoutList, Paperclip, Plus, Search, X } from "lucide-react";
+import { Building2, Check, ChevronDown, ChevronRight, Circle, CircleCheck, Folder, Inbox, LayoutList, Paperclip, Plus, Search, Trash2, X } from "lucide-react";
+import { CleanupCatalog, ConfirmAction } from "./cleanup-controls";
 import ProductMark from "./product-mark";
 import Clients from "./clients";
 import ProfileOption from "./profile";
@@ -13,20 +14,22 @@ import type { User } from "@supabase/supabase-js";
 
 const defaultSections = ["Bug report", "Update report", "User feedback"];
 const sectionsKey = "product-hub.sections.v1";
+const typesKey = "product-log.report-types.v2";
 const projectsKey = "product-hub.projects.v1";
 type StoredFile = { path: string; name: string; type: string };
-type Report = { id: string; title: string; details: string; done: boolean; attachmentCount?: number; type?: string; project?: string; attachments?: StoredFile[]; author?: string; posted_by?: string; created_at?: string; updated_by?: string; updated_at?: string };
+type Report = { id: string; title: string; details: string; done: boolean; deleted_at?: string | null; attachmentCount?: number; type?: string; project?: string; attachments?: StoredFile[]; author?: string; posted_by?: string; created_at?: string; updated_by?: string; updated_at?: string };
 const key = "product-hub.board.v1";
-const filters = ["All", "Open", "Done"] as const;
-const statusIcons = { All: LayoutList, Open: Circle, Done: CircleCheck };
+const filters = ["All", "Open", "Done", "Trash"] as const;
+const statusIcons = { All: LayoutList, Open: Circle, Done: CircleCheck, Trash: Trash2 };
 type Filter = typeof filters[number];
 
 function readSections(): string[] {
-  const saved: unknown = JSON.parse(localStorage.getItem(sectionsKey) ?? "[]");
+  const stored = localStorage.getItem(typesKey);
+  const saved: unknown = JSON.parse(stored ?? localStorage.getItem(sectionsKey) ?? "[]");
   if (!Array.isArray(saved) || !saved.every(name => typeof name === "string")) {
     throw new Error("Invalid section data");
   }
-  return [...defaultSections, ...saved];
+  return stored !== null ? saved : [...defaultSections, ...saved];
 }
 
 function readProjects(): string[] {
@@ -167,7 +170,7 @@ export default function Board({ shared }: { shared: boolean }) {
       }
     }
     function sync(event: StorageEvent) {
-      if (event.key === key || event.key === sectionsKey || event.key === projectsKey || event.key === null) load();
+      if (event.key === key || event.key === sectionsKey || event.key === typesKey || event.key === projectsKey || event.key === null) load();
     }
     load();
     window.addEventListener("storage", sync);
@@ -185,6 +188,7 @@ export default function Board({ shared }: { shared: boolean }) {
         return;
       }
       setSelected(report);
+      if (report.deleted_at) setFilter("Trash");
       setArea("reports");
       if (!detailDialog.current?.open && !dialog.current?.open) detailDialog.current?.showModal();
     }
@@ -251,7 +255,7 @@ export default function Board({ shared }: { shared: boolean }) {
         return;
       }
       sections.push(name);
-      localStorage.setItem(sectionsKey, JSON.stringify(sections.slice(defaultSections.length)));
+      localStorage.setItem(typesKey, JSON.stringify(sections));
       setReportTypes(sections);
       form.reset();
       sectionDialog.current?.close();
@@ -351,6 +355,7 @@ export default function Board({ shared }: { shared: boolean }) {
       setTypeFilter("");
       setProjectFilter("");
       if (filter === "Done") setFilter("Open");
+      if (filter === "Trash") setFilter("All");
       dialog.current?.close();
     } catch {
       setFormError("Couldn’t save the report. Check your connection or try smaller attachments.");
@@ -393,9 +398,70 @@ export default function Board({ shared }: { shared: boolean }) {
     }
   }
 
-  const completed = reports.filter(report => report.done).length;
-  const statusCounts = { All: reports.length, Open: reports.length - completed, Done: completed };
+  const activeReports = reports.filter(report => !report.deleted_at);
+  const completed = activeReports.filter(report => report.done).length;
+  const statusCounts = { All: activeReports.length, Open: activeReports.length - completed, Done: completed, Trash: reports.length - activeReports.length };
   const projects = Array.from(new Set([...savedProjects, ...reports.flatMap(report => report.project ? [report.project] : [])])).sort((a, b) => a.localeCompare(b));
+
+  async function manageReport(report: Report, action: "trash" | "restore" | "purge") {
+    try {
+      if (db) {
+        const result = await db.rpc("cleanup_report", { p_id: report.id, p_action: action });
+        if (result.error) throw new Error(result.error.message);
+        setReports(current => action === "purge" ? current.filter(item => item.id !== report.id) : current.map(item => item.id === report.id ? result.data as Report : item));
+      } else {
+        const stored = readReports().find(item => item.id === report.id);
+        if (!stored) throw new Error("Report unavailable.");
+        if (action === "restore" && stored.deleted_at && Date.now() - new Date(stored.deleted_at).getTime() > 30 * 86400000) throw new Error("The 30-day restore period has ended.");
+        if (action === "purge" && !stored.deleted_at) throw new Error("Move this report to Trash first.");
+        if (action === "purge" && (stored.attachmentCount ?? 0) > 0) throw new Error("Remove attachments before permanently deleting this report.");
+        if (!update(current => action === "purge" ? current.filter(item => item.id !== report.id) : current.map(item => item.id === report.id ? { ...item, deleted_at: action === "trash" ? item.deleted_at ?? new Date().toISOString() : null } : item))) throw new Error("Couldn’t save the change.");
+      }
+      detailDialog.current?.close();
+      notify(action === "trash" ? "Report moved to Trash." : action === "restore" ? "Report restored." : "Report permanently deleted.", action === "trash" ? () => { void manageReport(report, "restore").catch(() => {}); } : undefined);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : "Couldn’t manage this report.");
+      throw failure;
+    }
+  }
+
+  async function deleteCatalog(kind: "project" | "type", name: string) {
+    if (db) {
+      const result = await db.rpc("delete_catalog_entry", { p_kind: kind, p_name: name });
+      if (result.error) throw new Error(result.error.message);
+    } else {
+      if (readReports().some(report => (kind === "project" ? report.project : report.type)?.toLowerCase() === name.toLowerCase())) throw new Error("This entry is still linked to reports, including Trash.");
+      localStorage.setItem(kind === "project" ? projectsKey : typesKey, JSON.stringify((kind === "project" ? readProjects() : readSections()).filter(item => item !== name)));
+    }
+    if (kind === "project") { setSavedProjects(current => current.filter(item => item !== name)); setProjectFilter(""); }
+    else { setReportTypes(current => current.filter(item => item !== name)); setTypeFilter(""); }
+    notify("Unused entry deleted.");
+  }
+
+  async function removeFile(report: Report, index: number) {
+    let next: Report;
+    if (db) {
+      const path = report.attachments?.[index]?.path;
+      if (!path) throw new Error("Attachment unavailable.");
+      const result = await db.rpc("cleanup_report", { p_id: report.id, p_action: "remove_attachment", p_path: path });
+      if (result.error) throw new Error(result.error.message);
+      next = result.data as Report;
+      setReports(current => current.map(item => item.id === report.id ? next : item));
+      const cleanup = await db.storage.from("board-attachments").remove([path]);
+      if (cleanup.error) setError("Attachment removed from the report, but storage cleanup failed. Contact an admin to clean the detached file.");
+    } else {
+      const files = await readAttachments(report.id) ?? [];
+      if (!files[index]) throw new Error("Attachment unavailable.");
+      await saveAttachments(report.id, files.filter((_, position) => position !== index));
+      next = { ...report, attachmentCount: files.length - 1 };
+      if (!update(current => current.map(item => item.id === report.id ? next : item))) {
+        await saveAttachments(report.id, files);
+        throw new Error("Couldn’t save attachment removal.");
+      }
+    }
+    setSelected(next);
+    notify("Attachment removed.");
+  }
 
   async function addProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -439,7 +505,7 @@ export default function Board({ shared }: { shared: boolean }) {
   }
   const searchTerms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const visible = reports.filter(report =>
-    (filter === "All" || report.done === (filter === "Done"))
+    (filter === "Trash" ? Boolean(report.deleted_at) : !report.deleted_at && (filter === "All" || report.done === (filter === "Done")))
     && (!typeFilter || report.type === typeFilter)
     && (!projectFilter || report.project === projectFilter)
     && searchTerms.every(term => (report.title + " " + report.details).toLocaleLowerCase().includes(term)));
@@ -486,7 +552,7 @@ export default function Board({ shared }: { shared: boolean }) {
       <div className={styles.navigation}>
         <span className={styles.navLabel}>Workspace</span>
         <div className={styles.filters} role="group" aria-label="Workspace pages">
-          <button type="button" aria-pressed={area === "reports"} onClick={() => setArea("reports")}><LayoutList size={18} aria-hidden="true" /><span>Reports</span><small>{reports.length}</small></button>
+          <button type="button" aria-pressed={area === "reports"} onClick={() => setArea("reports")}><LayoutList size={18} aria-hidden="true" /><span>Reports</span><small>{statusCounts.All}</small></button>
           <button type="button" aria-pressed={area === "clients"} onClick={() => setArea("clients")}><Building2 size={17} aria-hidden="true" /><span>Clients</span></button>
         </div>
         <div className={styles.projectNavigation}>
@@ -505,7 +571,7 @@ export default function Board({ shared }: { shared: boolean }) {
     <main className={styles.main} id="workspace-content" tabIndex={-1}>
       <div className={styles.contextBar}><span>Workspace <ChevronRight size={14} aria-hidden="true" /> <strong>{area === "clients" ? "Clients" : "Reports"}</strong></span><span className={styles.workspaceMode}><i />{shared ? "Team workspace" : "Personal workspace"}</span></div>
       <div className={styles.pageContent} key={area}>
-      {area === "clients" ? (ready ? <Clients key={userId ?? "local"} db={db} canManage={canManageClients} /> : <p role="status">{error || "Loading workspace…"}</p>) : <>
+      {area === "clients" ? (ready ? <Clients key={userId ?? "local"} db={db} canManage={canManageClients} admin={admin} /> : <p role="status">{error || "Loading workspace…"}</p>) : <>
       <header className={styles.hero}>
         <div><h1 id="board-title">Reports</h1>
           <p>A clear view of what needs attention and what's moving forward.</p>
@@ -519,14 +585,21 @@ export default function Board({ shared }: { shared: boolean }) {
             const Icon = statusIcons[option];
             return <button key={option} type="button" aria-pressed={filter === option} onClick={() => setFilter(option)}><Icon size={16} aria-hidden="true" />{option === "All" ? "All reports" : option}<span>{statusCounts[option]}</span></button>;
           })}</div>
-          <div>
+          <div className={styles.toolbarActions}>
             <button className={styles.secondary} type="button" disabled={!ready} popoverTarget="board-manage">Organize <ChevronDown size={15} aria-hidden="true" /></button>
             <div className={styles.manageMenu} id="board-manage" popover="auto" ref={manageMenu}>
               <button type="button" onClick={() => { manageMenu.current?.hidePopover(); projectDialog.current?.showModal(); }}>New project</button>
               <button type="button" onClick={() => { manageMenu.current?.hidePopover(); sectionDialog.current?.showModal(); }}>Add report type</button>
             </div>
+        {(!db || admin) && <CleanupCatalog>
+          {([['project', projects], ['type', reportTypes]] as const).map(([kind, names]) => <section className={styles.catalogGroup} key={kind}><h3>{kind === "project" ? "Projects" : "Report types"}</h3>{names.map(name => {
+            const used = reports.some(report => (kind === "project" ? report.project : report.type)?.toLowerCase() === name.toLowerCase());
+            return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "In use" : "Unused"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description="This permanently deletes the unused entry." disabled={used} onConfirm={() => deleteCatalog(kind, name)} /></div>;
+          })}</section>)}
+        </CleanupCatalog>}
           </div>
         </div>
+        {filter === "Trash" && <p className={styles.trashHelp}>Restore reports within 30 days. Only admins can permanently delete them; attached files must be removed first. Reports are not automatically purged.</p>}
         <h2 id="reports-title" className={styles.visuallyHidden}>{filter === "All" ? "All reports" : filter + " reports"}</h2>
         <div className={styles.reportFilters + " " + styles.searchFilters}>
           <label>Search reports<div className={styles.reportSearch}>
@@ -552,7 +625,7 @@ export default function Board({ shared }: { shared: boolean }) {
           data-new={report.id === newReportId} onAnimationEnd={event => {
             if (event.target === event.currentTarget && report.id === newReportId) setNewReportId("");
           }}>
-          <button className={styles.status} disabled={!ready || Boolean(updatingId)} aria-busy={updatingId === report.id} aria-label={report.title + " completed"} aria-pressed={report.done}
+          <button className={styles.status} disabled={!ready || Boolean(updatingId) || Boolean(report.deleted_at)} aria-busy={updatingId === report.id} aria-label={report.title + " completed"} aria-pressed={report.done}
             onClick={() => void toggle(report)}>
             {updatingId === report.id ? <span className={styles.spinner} aria-hidden="true" /> : report.done ? <Check size={20} /> : <Circle size={20} />}
           </button>
@@ -562,7 +635,7 @@ export default function Board({ shared }: { shared: boolean }) {
               <span className={styles.typeChip}>{report.type ?? "Uncategorized"}</span>
               {Boolean(report.attachments?.length ?? report.attachmentCount) && <><Paperclip size={14} aria-hidden="true" /> {report.attachments?.length ?? report.attachmentCount} files</>}
             </small></span>
-            <span className={styles.rowStatus} data-done={report.done}>{report.done ? "Done" : "Open"}</span>
+            <span className={styles.rowStatus} data-done={report.done}>{report.deleted_at ? "In Trash" : report.done ? "Done" : "Open"}</span>
             <ChevronRight size={18} aria-hidden="true" />
           </button>
         </li>)}</ul> : <div className={styles.empty}>
@@ -658,22 +731,26 @@ export default function Board({ shared }: { shared: boolean }) {
           <div><dt>Last updated by</dt><dd>{selected.updated_by ?? "Unknown"}{selected.updated_at && <> · <time dateTime={selected.updated_at}>{new Date(selected.updated_at).toLocaleString()}</time></>}</dd></div>
         </dl>
         <div className={styles.detailActions}>
-          {(!db || admin || selected.author === userId) && <button className={styles.secondary} onClick={() => {
+          {!selected.deleted_at && (!db || admin || selected.author === userId) && <button className={styles.secondary} onClick={() => {
             setEditing(selected);
             setProjectChoice(selected.project ? "project:" + selected.project : "");
             detailDialog.current?.close();
             dialog.current?.showModal();
           }}>Edit report</button>}
           {db && <button className={styles.secondary} onClick={() => void copyReportLink(selected.id)}>Copy report link</button>}
+          {(!db || canManageClients && (admin || selected.author === userId)) && (selected.deleted_at ? <>
+            <button className={styles.secondary} disabled={Date.now() - new Date(selected.deleted_at).getTime() > 30 * 86400000} onClick={() => void manageReport(selected, "restore").catch(() => {})}>Restore report</button>
+            {(!db || admin) && <ConfirmAction label="Delete permanently" title="Permanently delete report?" description="This cannot be undone. Remove attached files first." disabled={Boolean(selected.attachments?.length ?? selected.attachmentCount)} onConfirm={() => manageReport(selected, "purge")} />}
+          </> : <ConfirmAction label="Move to Trash" title="Move report to Trash?" description="The report and its attachments will stay recoverable for 30 days." onConfirm={() => manageReport(selected, "trash")} />)}
         </div>
         {linkMessage && <p role="status">{linkMessage}</p>}
-        {Boolean(selected.attachments?.length ?? selected.attachmentCount) && <Attachments key={selected.id} report={selected} db={db} />}
+        {Boolean(selected.attachments?.length ?? selected.attachmentCount) && <Attachments key={selected.id + ":" + (selected.attachments?.length ?? selected.attachmentCount)} report={selected} db={db} onRemove={(!db || canManageClients && (admin || selected.author === userId)) ? index => removeFile(selected, index) : undefined} />}
       </>}
     </dialog>
   </div>;
 }
 
-function Attachments({ report, db }: { report: Report; db: ReturnType<typeof createClient> | null }) {
+function Attachments({ report, db, onRemove }: { report: Report; db: ReturnType<typeof createClient> | null; onRemove?: (index: number) => Promise<void> }) {
   const [previews, setPreviews] = useState<{ file: File; url: string }[]>([]);
   const [status, setStatus] = useState("Loading attachments…");
 
@@ -705,11 +782,11 @@ function Attachments({ report, db }: { report: Report; db: ReturnType<typeof cre
   return <section className={styles.attachments} aria-label="Attachments">
     <h3>Attachments</h3>
     {status && <p role="status">{status}</p>}
-    {previews.map(({ file, url }) => <figure key={url}>
+    {previews.map(({ file, url }, index) => <figure key={url}>
       {file.type.startsWith("video/")
         ? <video src={url} controls preload="metadata" aria-label={file.name} />
         : <img src={url} alt={file.name} />}
-      <figcaption><a href={url} download={file.name}>{file.name}</a></figcaption>
+      <figcaption><a href={url} download={file.name}>{file.name}</a>{onRemove && <ConfirmAction label="Remove attachment" title={`Remove ${file.name}?`} description="This permanently removes the attachment from the report." onConfirm={() => onRemove(index)} />}</figcaption>
     </figure>)}
   </section>;
 }

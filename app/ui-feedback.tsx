@@ -5,20 +5,21 @@ import { Check, X } from "lucide-react";
 import styles from "./board.module.css";
 
 export function useNotice() {
-  const [notice, setNotice] = useState<{ message: string; sequence: number } | null>(null);
+  const [notice, setNotice] = useState<{ message: string; sequence: number; undo?: () => void } | null>(null);
   const sequence = useRef(0);
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 6000);
     return () => window.clearTimeout(timer);
   }, [notice]);
-  return { notice, notify: (message: string) => setNotice({ message, sequence: ++sequence.current }), dismiss: () => setNotice(null) };
+  return { notice, notify: (message: string, undo?: () => void) => setNotice({ message, sequence: ++sequence.current, undo }), dismiss: () => setNotice(null) };
 }
 
 export function Notice({ notice, dismiss }: Pick<ReturnType<typeof useNotice>, "notice" | "dismiss">) {
   return <div className={styles.noticeRegion} role="status" aria-live="polite" aria-atomic="true">
     {notice && <div className={styles.notice} key={notice.sequence}>
       <Check size={18} aria-hidden="true" /><span>{notice.message}</span>
+      {notice.undo && <button type="button" className={styles.undoButton} onClick={() => { const undo = notice.undo; dismiss(); undo?.(); }}>Undo</button>}
       <button type="button" onClick={dismiss} aria-label="Dismiss notification"><X size={16} aria-hidden="true" /></button>
     </div>}
   </div>;
