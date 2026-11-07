@@ -52,6 +52,7 @@ export default function Board({ shared }: { shared: boolean }) {
   const [user, setUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(!shared);
   const [admin, setAdmin] = useState(false);
+  const [canManageClients, setCanManageClients] = useState(false);
   const [authError, setAuthError] = useState("");
   const [registering, setRegistering] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
@@ -127,6 +128,7 @@ export default function Board({ shared }: { shared: boolean }) {
       setReady(false);
       setReports([]);
       setAdmin(false);
+      setCanManageClients(false);
       setError("");
       if (userId) {
         Promise.all([
@@ -142,6 +144,7 @@ export default function Board({ shared }: { shared: boolean }) {
             setError("Your account needs an invitation to this workspace.");
           } else {
             setAdmin(member.data.role === "Admin");
+            setCanManageClients(["Admin", "Developer", "Team Member"].includes(member.data.role));
             setReports(records.data as Report[]);
             setReportTypes(types.data.map(type => type.name));
             setSavedProjects(projectRecords.data.map(project => project.name));
@@ -502,7 +505,7 @@ export default function Board({ shared }: { shared: boolean }) {
     <main className={styles.main} id="workspace-content" tabIndex={-1}>
       <div className={styles.contextBar}><span>Workspace <ChevronRight size={14} aria-hidden="true" /> <strong>{area === "clients" ? "Clients" : "Reports"}</strong></span><span className={styles.workspaceMode}><i />{shared ? "Team workspace" : "Personal workspace"}</span></div>
       <div className={styles.pageContent} key={area}>
-      {area === "clients" ? (ready ? <Clients key={userId ?? "local"} db={db} admin={admin} /> : <p role="status">{error || "Loading workspace…"}</p>) : <>
+      {area === "clients" ? (ready ? <Clients key={userId ?? "local"} db={db} canManage={canManageClients} /> : <p role="status">{error || "Loading workspace…"}</p>) : <>
       <header className={styles.hero}>
         <div><h1 id="board-title">Reports</h1>
           <p>A clear view of what needs attention and what's moving forward.</p>

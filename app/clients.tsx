@@ -24,7 +24,7 @@ function websiteUrl(value: string) {
   } catch { return undefined; }
 }
 
-export default function Clients({ db, admin }: { db: ReturnType<typeof createClient> | null; admin: boolean }) {
+export default function Clients({ db, canManage }: { db: ReturnType<typeof createClient> | null; canManage: boolean }) {
   const [data, setData] = useState<Data>({ clients: [], products: [] });
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
@@ -40,7 +40,7 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
   const editor = useRef<HTMLDialogElement>(null);
   const detail = useRef<HTMLDialogElement>(null);
   const productDialog = useRef<HTMLDialogElement>(null);
-  const canEdit = !db || admin;
+  const canEdit = !db || canManage;
 
   useEffect(() => {
     let active = true;
@@ -147,6 +147,7 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
     <header className={styles.hero}><div><h1>Clients</h1><p>The people and companies behind your products.</p></div>
       {canEdit && <button className={styles.primary} disabled={!ready} onClick={() => openEditor(null)}><Plus size={18} /> Add client</button>}
     </header>
+    {!canEdit && <p className={styles.clientSummary}>You have view-only access. Ask a workspace admin to update client details.</p>}
     <div className={styles.clientSummary}><span><strong>{data.clients.filter(client => !client.archived).length}</strong> active {data.clients.filter(client => !client.archived).length === 1 ? "client" : "clients"}</span><span><strong>{data.products.length}</strong> {data.products.length === 1 ? "product" : "products"}</span></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     <section className={styles.panel} aria-label="Client directory">
