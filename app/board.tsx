@@ -372,7 +372,7 @@ export default function Board({ shared }: { shared: boolean }) {
 
   if (db && !user) return <div className={styles.shell}><main className={styles.main}>
     <section className={styles.panel + " " + styles.signIn}>
-      <h1>Sign in to Product Hub</h1>
+      <h1>Sign in to Product Log</h1>
       {authReady ? <form onSubmit={signIn}>
         <label>Email<input name="email" type="email" autoComplete="username" required /></label>
         <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
@@ -384,7 +384,7 @@ export default function Board({ shared }: { shared: boolean }) {
 
   return <div className={styles.shell + " " + styles.workspace}>
     <aside className={styles.sidebar} aria-label="Workspace">
-      <strong><Layers3 size={19} aria-hidden="true" /> Product Hub</strong>
+      <strong><Layers3 size={19} aria-hidden="true" /> Product Log</strong>
       <div className={styles.navigation}>
         <span className={styles.navLabel}>Workspace</span>
         <div className={styles.filters} role="group" aria-label="Report status">
@@ -401,7 +401,7 @@ export default function Board({ shared }: { shared: boolean }) {
         {db ? <button className={styles.secondary} onClick={async () => {
           const result = await db.auth.signOut();
           if (result.error) setError("Couldn’t sign out.");
-        }}>Sign out</button> : <span><i /> Local workspace</span>}
+        }}>Sign out</button> : <span><i /> Only on this device</span>}
       </div>
     </aside>
     <main className={styles.main}>
@@ -459,7 +459,6 @@ export default function Board({ shared }: { shared: boolean }) {
             : <button className={styles.secondary} onClick={() => dialog.current?.showModal()}><Plus size={16} /> Create first report</button>)}
         </div>}
       </section>
-      {!db && <footer>Reports are saved in this browser.</footer>}
     </main>
     <dialog className={styles.dialog} ref={projectDialog} aria-labelledby="project-dialog-title"
       onClose={() => setProjectError("")} onCancel={event => { if (creatingProject) event.preventDefault(); }}>
@@ -538,8 +537,8 @@ export default function Board({ shared }: { shared: boolean }) {
         <p className={styles.reportMeta}>{selected.type ?? "Uncategorized"} · {selected.project ?? "No project"}</p>
         <p className={styles.description}>{selected.details || "No details added."}</p>
         <dl className={styles.attribution}>
-          <div><dt>Posted by</dt><dd>{selected.posted_by ?? (selected.created_at ? "Local workspace" : "Unknown")}{selected.created_at && <> · <time dateTime={selected.created_at}>{new Date(selected.created_at).toLocaleString()}</time></>}</dd></div>
-          <div><dt>Last updated by</dt><dd>{selected.updated_by ?? (selected.updated_at ? "Local workspace" : "Unknown")}{selected.updated_at && <> · <time dateTime={selected.updated_at}>{new Date(selected.updated_at).toLocaleString()}</time></>}</dd></div>
+          <div><dt>Posted by</dt><dd>{selected.posted_by ?? "Unknown"}{selected.created_at && <> · <time dateTime={selected.created_at}>{new Date(selected.created_at).toLocaleString()}</time></>}</dd></div>
+          <div><dt>Last updated by</dt><dd>{selected.updated_by ?? "Unknown"}{selected.updated_at && <> · <time dateTime={selected.updated_at}>{new Date(selected.updated_at).toLocaleString()}</time></>}</dd></div>
         </dl>
         <div className={styles.detailActions}>
           {(!db || admin || selected.author === userId) && <button className={styles.secondary} onClick={() => {

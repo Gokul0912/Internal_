@@ -257,8 +257,8 @@ export default function Hub() {
 
   if (!ready || !member) return <main className={styles.root + " " + styles.authPage}><div className={styles.auth}><Brand />
     {!ready ? <p role="status">Loading workspace…</p> : account ? <>
-      <h1>Workspace access required</h1><p>Ask a Product Hub admin to add your account.</p><button onClick={signOut}>Sign out</button>
-    </> : <form onSubmit={login}><h1>Sign in to your workspace</h1><p>Use your company account to access Product Hub.</p>
+      <h1>Workspace access required</h1><p>Ask a Product Log admin to add your account.</p><button onClick={signOut}>Sign out</button>
+    </> : <form onSubmit={login}><h1>Sign in to your workspace</h1><p>Use your company account to access Product Log.</p>
       <label>Email<input name="email" type="email" autoComplete="username" required /></label>
       <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
       <button className={styles.primary} disabled={busy}>Sign in <ArrowRight size={16} /></button>
@@ -268,7 +268,7 @@ export default function Hub() {
 
   return <div className={styles.root}>
     <aside className={styles.sidebar}><Brand /><span className={styles.eyebrow}>WORKSPACE</span>
-      <nav aria-label="Product Hub">{nav.filter(([key]) => admin || (key !== "applications" && key !== "team")).map(([key, label, Icon]) =>
+      <nav aria-label="Product Log">{nav.filter(([key]) => admin || (key !== "applications" && key !== "team")).map(([key, label, Icon]) =>
         <button key={key} type="button" aria-current={view === key ? "page" : undefined} onClick={() => navigate(key)}><Icon size={17} />{label}</button>)}</nav>
       <div className={styles.identity}><span>{member.name.slice(0, 2).toUpperCase()}</span><div><strong>{member.name}</strong><small>{member.role}</small></div>
         <button onClick={signOut} aria-label="Sign out" title="Sign out"><LogOut size={16} /></button></div>
@@ -277,7 +277,7 @@ export default function Hub() {
       <div className={styles.top}><span>Workspace <ChevronRight size={13} /> {nav.find(item => item[0] === view)?.[1]}</span><span className={styles.internal}><i /> Internal workspace</span></div>
       <header className={styles.header}><div><div className={styles.eyebrow}>PRODUCT OPERATIONS</div>
         <h1>{view === "dashboard" ? "Product overview" : nav.find(item => item[0] === view)?.[1]}</h1>
-        <p>{view === "dashboard" ? "Track product health, incoming reports, and the work moving forward." : kind ? "Review submissions and follow their progress across applications." : "Manage your Product Hub workspace."}</p>
+        <p>{view === "dashboard" ? "Track product health, incoming reports, and the work moving forward." : kind ? "Review submissions and follow their progress across applications." : "Manage your Product Log workspace."}</p>
       </div><div className={styles.actions}>
         {kind && admin && <button onClick={exportReports} disabled={busy}><ArrowDownToLine size={16} /> Export CSV</button>}
         {(kind || view === "dashboard") && submitter && <button className={styles.primary} onClick={() => setEditor({ kind: kind ?? "bug" })}><Plus size={17} /> {kind ? "New " + modules[kind].single : "New report"}</button>}
@@ -373,7 +373,7 @@ export default function Hub() {
 }
 
 function Brand() {
-  return <div className={styles.brand}><span><Boxes size={22} /></span><div>Product Hub<small>DEVELOPMENT WORKSPACE</small></div></div>;
+  return <div className={styles.brand}><span><Boxes size={22} /></span><div>Product Log<small>DEVELOPMENT WORKSPACE</small></div></div>;
 }
 
 function Modal({ title, close, busy, children }: { title: string; close: () => void; busy: boolean; children: ReactNode }) {

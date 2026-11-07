@@ -1,4 +1,4 @@
--- Development fixtures only. Run after the Product Hub migration.
+-- Development fixtures only. Run after the Product Log migration.
 insert into public.hub_apps (id, name, description)
 values ('a16d2639-8d57-4f48-9789-916d68954f46', 'Sample Product', 'Development fixture')
 on conflict (id) do nothing;
