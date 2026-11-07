@@ -75,6 +75,21 @@
 }
 
 .signIn h1 { font-size: clamp(25px, 4vw, 34px); letter-spacing: -.045em; }
+.clientFilters { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; padding: 16px 24px; border-bottom: 1px solid #dce4ea; }
+.clientFilters label { display: grid; gap: 5px; color: #52616e; font-size: 13px; font-weight: 650; min-width: 0; }
+.clientFilters input { min-width: 0; width: 100%; min-height: 40px; padding: 7px 9px; border: 1px solid #9baab5; border-radius: 9px; background: white; color: #192532; font: inherit; }
+.companyAvatar { display: grid; place-items: center; width: 42px; height: 42px; flex: none; border-radius: 12px; background: #e9f2ef; color: #305f55; font-size: 13px; font-weight: 700; }
+.clientEditor { width: min(620px, calc(100% - 32px)); }
+.clientFields { display: grid; min-width: 0; gap: 14px; padding: 0; margin: 12px 0 0; border: 0; }
+.clientFields summary { cursor: pointer; min-height: 40px; color: #305f55; font-weight: 650; }
+.productChoices, .contactFields { min-width: 0; border: 1px solid #dce4ea; border-radius: 10px; padding: 12px; }
+.contactFields { display: grid; gap: 10px; }
+.clientFields .checkboxLabel, .productChoices label { display: flex; align-items: center; gap: 8px; min-height: 36px; overflow-wrap: anywhere; }
+.clientFields input[type="checkbox"] { width: 16px; height: 16px; accent-color: #305f55; }
+.contactCard { display: grid; gap: 5px; border: 1px solid #dce4ea; border-radius: 10px; padding: 12px; }
+.clientFields a { color: #305f55; overflow-wrap: anywhere; }
+@media (max-width: 760px) { .navigation .filters { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (max-width: 540px) { .clientFilters { grid-template-columns: 1fr; padding-inline: 16px; } }
 
 .manageMenu {
   position: absolute;

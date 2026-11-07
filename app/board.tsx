@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Check, ChevronRight, Circle, CircleCheck, Inbox, Layers3, LayoutList, Paperclip, Plus, X } from "lucide-react";
+import { Building2, Check, ChevronRight, Circle, CircleCheck, Inbox, Layers3, LayoutList, Paperclip, Plus, X } from "lucide-react";
+import Clients from "./clients";
 import { attachmentTypes, maxAttachmentBytes, readAttachments, removeAttachments, saveAttachments } from "./board-attachments";
 import styles from "./board.module.css";
 import { createClient } from "./supabase-client";
@@ -49,9 +50,12 @@ export default function Board({ shared }: { shared: boolean }) {
   const [authReady, setAuthReady] = useState(!shared);
   const [admin, setAdmin] = useState(false);
   const [authError, setAuthError] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
   const [signingIn, setSigningIn] = useState(false);
   const [reports, setReports] = useState<Report[]>([]);
   const [filter, setFilter] = useState<Filter>("All");
+  const [area, setArea] = useState<"reports" | "clients">("reports");
   const [typeFilter, setTypeFilter] = useState("");
   const [reportTypes, setReportTypes] = useState(defaultSections);
   const [sectionError, setSectionError] = useState("");
@@ -146,6 +150,7 @@ export default function Board({ shared }: { shared: boolean }) {
         return;
       }
       setSelected(report);
+      setArea("reports");
       if (!detailDialog.current?.open && !dialog.current?.open) detailDialog.current?.showModal();
     }
     openLinkedReport();
@@ -159,9 +164,24 @@ export default function Board({ shared }: { shared: boolean }) {
     const data = new FormData(event.currentTarget);
     setSigningIn(true);
     setAuthError("");
+    setAuthNotice("");
     try {
-      const result = await db.auth.signInWithPassword({ email: String(data.get("email")).trim(), password: String(data.get("password")) });
-      if (result.error) setAuthError("Couldn’t sign in. Check your email and password.");
+      const email = String(data.get("email")).trim();
+      const password = String(data.get("password"));
+      if (registering) {
+        if (!/^[^@\s]+@gmail\.com$/i.test(email)) {
+          setAuthError("Use a gmail.com address to create an account.");
+          return;
+        }
+        const name = String(data.get("name")).trim();
+        if (!name) { setAuthError("Enter your name."); return; }
+        const result = await db.auth.signUp({ email, password, options: { data: { name } } });
+        if (result.error) setAuthError("Couldn’t create your account. Check your details and try again.");
+        else setAuthNotice("Check your Gmail inbox and confirm your email, then return here to sign in.");
+      } else {
+        const result = await db.auth.signInWithPassword({ email, password });
+        if (result.error) setAuthError("Couldn’t sign in. Check your email and password.");
+      }
     } catch {
       setAuthError("Couldn’t reach the sign-in service.");
     } finally {
@@ -372,12 +392,16 @@ export default function Board({ shared }: { shared: boolean }) {
 
   if (db && !user) return <div className={styles.shell}><main className={styles.main}>
     <section className={styles.panel + " " + styles.signIn}>
-      <h1>Sign in to Product Log</h1>
+      <h1>{registering ? "Create your account" : "Sign in to Product Log"}</h1>
       {authReady ? <form onSubmit={signIn}>
-        <label>Email<input name="email" type="email" autoComplete="username" required /></label>
-        <label>Password<input name="password" type="password" autoComplete="current-password" required /></label>
+        {registering && <label>Name<input name="name" autoComplete="name" required maxLength={120} disabled={signingIn} /></label>}
+        <label>Email<input name="email" type="email" autoComplete="username" required disabled={signingIn} /></label>
+        <label>Password<input name="password" type="password" autoComplete={registering ? "new-password" : "current-password"} minLength={registering ? 12 : undefined} required disabled={signingIn} /></label>
+        {registering && <p>Use a Gmail address and a password of at least 12 characters.</p>}
         {authError && <p role="alert" className={styles.error}>{authError}</p>}
-        <button className={styles.primary} disabled={signingIn}>{signingIn ? "Signing in…" : "Sign in"}</button>
+        {authNotice && <p role="status">{authNotice}</p>}
+        <button className={styles.primary} disabled={signingIn}>{signingIn ? "Please wait…" : registering ? "Create account" : "Sign in"}</button>
+        <button className={styles.secondary} type="button" disabled={signingIn} onClick={() => { setRegistering(value => !value); setAuthError(""); setAuthNotice(""); }}>{registering ? "Back to sign in" : "Sign up with Gmail"}</button>
       </form> : <p>Checking your session…</p>}
     </section>
   </main></div>;
@@ -390,11 +414,12 @@ export default function Board({ shared }: { shared: boolean }) {
         <div className={styles.filters} role="group" aria-label="Report status">
           {filters.map(option => {
             const Icon = statusIcons[option];
-            return <button key={option} type="button" aria-pressed={filter === option} onClick={() => setFilter(option)}>
+            return <button key={option} type="button" aria-pressed={area === "reports" && filter === option} onClick={() => { setArea("reports"); setFilter(option); }}>
               <Icon size={17} aria-hidden="true" /><span>{option === "All" ? "All reports" : option}</span>
               <small aria-hidden="true">{statusCounts[option]}</small>
             </button>;
           })}
+          <button type="button" aria-pressed={area === "clients"} onClick={() => setArea("clients")}><Building2 size={17} aria-hidden="true" /><span>Clients</span></button>
         </div>
       </div>
       <div className={styles.workspaceInfo}>
@@ -405,6 +430,7 @@ export default function Board({ shared }: { shared: boolean }) {
       </div>
     </aside>
     <main className={styles.main}>
+      {area === "clients" ? (ready ? <Clients key={userId ?? "local"} db={db} admin={admin} /> : <p role="status">{error || "Loading workspace…"}</p>) : <>
       <header className={styles.hero}>
         <div><small>PRODUCT OPERATIONS</small><h1 id="board-title">Report board</h1>
           <p>Track bugs, updates, and feedback across your projects.</p>
@@ -459,6 +485,7 @@ export default function Board({ shared }: { shared: boolean }) {
             : <button className={styles.secondary} onClick={() => dialog.current?.showModal()}><Plus size={16} /> Create first report</button>)}
         </div>}
       </section>
+      </>}
     </main>
     <dialog className={styles.dialog} ref={projectDialog} aria-labelledby="project-dialog-title"
       onClose={() => setProjectError("")} onCancel={event => { if (creatingProject) event.preventDefault(); }}>
