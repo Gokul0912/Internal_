@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Building2, ChevronRight, Plus, X } from "lucide-react";
 import type { createClient } from "./supabase-client";
 import styles from "./board.module.css";
+import { ListSkeleton, MotionResults, Notice, useNotice } from "./ui-feedback";
 
 type Contact = { name: string; role: string; email: string; phone: string };
 type Client = { id: string; company: string; website: string; address: string; notes: string; archived: boolean; products: string[]; contacts: Contact[] };
@@ -29,6 +30,7 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
   const [busy, setBusy] = useState(false);
+  const { notice, notify, dismiss } = useNotice();
   const [query, setQuery] = useState("");
   const [product, setProduct] = useState("");
   const [status, setStatus] = useState("active");
@@ -103,6 +105,7 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
         setData(next);
       }
       editor.current?.close();
+      notify(editing ? "Client updated." : "Client added.");
     } catch { setFormError("Couldn’t save this client. Try again."); }
     finally { setBusy(false); }
   }
@@ -128,6 +131,7 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
       setData(next);
       form.reset();
       productDialog.current?.close();
+      notify("Product created.");
     } catch { setFormError("Couldn’t create the product. It may already exist."); }
     finally { setBusy(false); }
   }
@@ -139,12 +143,14 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
     .sort((a, b) => a.company.localeCompare(b.company));
 
   return <>
-    <header className={styles.hero}><div><small>COMPANY DIRECTORY</small><h1>Clients</h1><p>Companies, contacts, and the products you work on together.</p></div>
+    <Notice notice={notice} dismiss={dismiss} />
+    <header className={styles.hero}><div><h1>Clients</h1><p>The people and companies behind your products.</p></div>
       {canEdit && <button className={styles.primary} disabled={!ready} onClick={() => openEditor(null)}><Plus size={18} /> Add client</button>}
     </header>
+    <div className={styles.clientSummary}><span><strong>{data.clients.filter(client => !client.archived).length}</strong> active {data.clients.filter(client => !client.archived).length === 1 ? "client" : "clients"}</span><span><strong>{data.products.length}</strong> {data.products.length === 1 ? "product" : "products"}</span></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     <section className={styles.panel} aria-label="Client directory">
-      <div className={styles.toolbar}><div><h2>Client directory</h2><p aria-live="polite">{visible.length} companies</p></div>
+      <div className={styles.toolbar}><div><h2>Client directory</h2><p aria-live="polite">{visible.length} {visible.length === 1 ? "company" : "companies"}</p></div>
         {canEdit && <button className={styles.secondary} disabled={!ready} onClick={() => { setFormError(""); productDialog.current?.showModal(); }}><Plus size={16} /> New product</button>}
       </div>
       <div className={styles.clientFilters}>
@@ -152,12 +158,14 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
         <label>Product<select value={product} onChange={event => setProduct(event.target.value)}><option value="">All products</option>{data.products.map(name => <option key={name}>{name}</option>)}</select></label>
         <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="active">Active</option><option value="archived">Archived</option><option value="all">All clients</option></select></label>
       </div>
-      {visible.length ? <ul className={styles.list}>{visible.map(client => <li key={client.id}>
+      <MotionResults changeKey={JSON.stringify([query, product, status, ready])}>
+      {!ready && !error ? <ListSkeleton label="Loading clients" /> : visible.length ? <ul className={styles.list}>{visible.map(client => <li key={client.id}>
         <span className={styles.companyAvatar} aria-hidden="true">{client.company.slice(0, 2).toUpperCase()}</span>
         <button className={styles.reportLink} onClick={() => { setSelected(client); detail.current?.showModal(); }}>
           <span><strong>{client.company}</strong><small>{client.contacts[0]?.name ?? "No contact added"} · {client.products.join(", ") || "No product linked"}</small></span><ChevronRight size={18} />
         </button>
-      </li>)}</ul> : <div className={styles.empty}><Building2 size={28} /><h3>{ready ? "No matching clients" : "Loading directory…"}</h3><p>{data.clients.length ? "Try another product, status, or search." : "Add your first company, then link the products they use."}</p></div>}
+      </li>)}</ul> : <div className={styles.empty}><Building2 size={28} /><h3>{error ? "Clients unavailable" : data.clients.length ? "No matching clients" : "Your client directory starts here"}</h3><p>{error ? "Refresh to try loading the directory again." : data.clients.length ? "Try another product, status, or search." : "Add your first company, then link the products they use."}</p></div>}
+      </MotionResults>
     </section>
     <dialog ref={editor} className={styles.dialog + " " + styles.clientEditor} aria-label={editing ? "Edit client" : "Add client"} onCancel={event => { if (busy) event.preventDefault(); }}>
       <form onSubmit={save} key={editing?.id ?? "new-client"}>
@@ -183,20 +191,20 @@ export default function Clients({ db, admin }: { db: ReturnType<typeof createCli
           <label className={styles.checkboxLabel}><input name="archived" type="checkbox" defaultChecked={editing?.archived} /> Archived</label>
         </fieldset>
         {formError && <p role="alert" className={styles.error}>{formError}</p>}
-        <button className={styles.primary} disabled={busy}>{busy ? "Saving…" : "Save client"}</button>
+        <button className={styles.primary} disabled={busy}>{busy && <span className={styles.spinner} aria-hidden="true" />}{busy ? "Saving…" : "Save client"}</button>
       </form>
     </dialog>
     <dialog ref={productDialog} className={styles.dialog} aria-label="New product" onCancel={event => { if (busy) event.preventDefault(); }}>
       <form onSubmit={addProduct}><div className={styles.dialogHead}><h2>New product</h2><button type="button" disabled={busy} aria-label="Close" onClick={() => productDialog.current?.close()}><X size={20} /></button></div>
         <label>Product name<input name="name" required autoFocus maxLength={80} /></label>
         {formError && <p role="alert" className={styles.error}>{formError}</p>}
-        <button className={styles.primary} disabled={busy}>{busy ? "Saving…" : "Create product"}</button>
+        <button className={styles.primary} disabled={busy}>{busy && <span className={styles.spinner} aria-hidden="true" />}{busy ? "Saving…" : "Create product"}</button>
       </form>
     </dialog>
-    <dialog ref={detail} className={styles.dialog + " " + styles.detail} aria-label="Client details" onClose={() => setSelected(null)}>
+    <dialog ref={detail} className={styles.dialog + " " + styles.detail} aria-label="Client details">
       <div className={styles.dialogHead}><h2>{selected?.company}</h2><button autoFocus aria-label="Close client" onClick={() => detail.current?.close()}><X size={20} /></button></div>
       {selected && <div className={styles.clientFields}>
-        <span className={styles.badge}>{selected.archived ? "Archived" : "Active"}</span>
+        <span className={styles.badge} data-done={!selected.archived}>{selected.archived ? "Archived" : "Active"}</span>
         <h3>Products</h3><p>{selected.products.join(", ") || "No products linked"}</p>
         {websiteUrl(selected.website) && <a href={websiteUrl(selected.website)} target="_blank" rel="noopener noreferrer">{selected.website}</a>}
         <h3>Contacts</h3>

@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Building2, Check, ChevronRight, Circle, CircleCheck, Inbox, Layers3, LayoutList, Paperclip, Plus, X } from "lucide-react";
+import { Building2, Check, ChevronDown, ChevronRight, Circle, CircleCheck, Folder, Inbox, LayoutList, Paperclip, Plus, Search, X } from "lucide-react";
+import ProductMark from "./product-mark";
 import Clients from "./clients";
 import ProfileOption from "./profile";
+import { ListSkeleton, MotionResults, Notice, useNotice } from "./ui-feedback";
 import { attachmentTypes, maxAttachmentBytes, readAttachments, removeAttachments, saveAttachments } from "./board-attachments";
 import styles from "./board.module.css";
 import { createClient } from "./supabase-client";
@@ -59,6 +61,8 @@ export default function Board({ shared }: { shared: boolean }) {
   const [filter, setFilter] = useState<Filter>("All");
   const [area, setArea] = useState<"reports" | "clients">("reports");
   const [typeFilter, setTypeFilter] = useState("");
+  const [search, setSearch] = useState("");
+  const searchInput = useRef<HTMLInputElement>(null);
   const [reportTypes, setReportTypes] = useState(defaultSections);
   const [sectionError, setSectionError] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
@@ -72,6 +76,9 @@ export default function Board({ shared }: { shared: boolean }) {
   const [saving, setSaving] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [newReportId, setNewReportId] = useState("");
+  const [updatingId, setUpdatingId] = useState("");
+  const statusRequest = useRef(false);
+  const { notice, notify, dismiss } = useNotice();
   const [selected, setSelected] = useState<Report | null>(null);
   const [editing, setEditing] = useState<Report | null>(null);
   const [linkMessage, setLinkMessage] = useState("");
@@ -232,6 +239,7 @@ export default function Board({ shared }: { shared: boolean }) {
         setReportTypes(current => [...current, name]);
         form.reset();
         sectionDialog.current?.close();
+        notify("Report type created.");
         return;
       }
       const sections = readSections();
@@ -244,6 +252,7 @@ export default function Board({ shared }: { shared: boolean }) {
       setReportTypes(sections);
       form.reset();
       sectionDialog.current?.close();
+      notify("Report type created.");
     } catch {
       setSectionError("This browser couldn’t save the report type.");
     }
@@ -331,7 +340,9 @@ export default function Board({ shared }: { shared: boolean }) {
           return;
         }
       }
-      if (!editing) setNewReportId(id);
+      setNewReportId(editing?.id ?? id);
+      notify(editing ? "Report updated." : "Report created.");
+      setSearch("");
       form.reset();
       setProjectChoice("");
       setTypeFilter("");
@@ -346,14 +357,26 @@ export default function Board({ shared }: { shared: boolean }) {
   }
 
   async function toggle(report: Report) {
-    if (!db) {
-      update(current => current.map(item => item.id === report.id
-        ? { ...item, done: !report.done, updated_at: new Date().toISOString() } : item));
-      return;
+    if (statusRequest.current) return;
+    statusRequest.current = true;
+    setUpdatingId(report.id);
+    try {
+      if (!db) {
+        if (!update(current => current.map(item => item.id === report.id
+          ? { ...item, done: !report.done, updated_at: new Date().toISOString() } : item))) return;
+      } else {
+        const result = await db.from("board_reports").update({ done: !report.done }).eq("id", report.id).select().single();
+        if (result.error) throw result.error;
+        setReports(current => current.map(item => item.id === report.id ? result.data as Report : item));
+      }
+      setNewReportId(report.id);
+      notify(report.done ? "Report reopened." : "Report marked done.");
+    } catch {
+      setError("Couldn’t update the report status. Try again.");
+    } finally {
+      statusRequest.current = false;
+      setUpdatingId("");
     }
-    const result = await db.from("board_reports").update({ done: !report.done }).eq("id", report.id).select().single();
-    if (result.error) setError("Couldn’t update the report status.");
-    else setReports(current => current.map(item => item.id === report.id ? result.data as Report : item));
   }
 
   async function copyReportLink(id: string) {
@@ -404,20 +427,30 @@ export default function Board({ shared }: { shared: boolean }) {
       }
       form.reset();
       projectDialog.current?.close();
+      notify("Project created.");
     } catch {
       setProjectError("Couldn’t save the project. Try again.");
     } finally {
       setCreatingProject(false);
     }
   }
+  const searchTerms = search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const visible = reports.filter(report =>
     (filter === "All" || report.done === (filter === "Done"))
     && (!typeFilter || report.type === typeFilter)
-    && (!projectFilter || report.project === projectFilter));
+    && (!projectFilter || report.project === projectFilter)
+    && searchTerms.every(term => (report.title + " " + report.details).toLocaleLowerCase().includes(term)));
 
-  if (db && !user) return <div className={styles.shell}><main className={styles.main}>
+  if (db && !user) return <div className={styles.shell + " " + styles.authLayout}><aside className={styles.authStory}>
+    <div className={styles.loginBrand}><ProductMark /><strong>Product Log</strong></div>
+    <div><h2>Good products start with a clear picture.</h2><p>Keep your team's reports, project updates, and client relationships in one place.</p>
+      <div className={styles.authFeatures}><span><LayoutList size={20} /> Reports with context</span><span><Folder size={20} /> Projects, connected</span><span><Building2 size={20} /> Clients, close at hand</span></div>
+    </div><small>Your team's everyday workspace.</small>
+  </aside><main className={styles.authMain}>
     <section className={styles.panel + " " + styles.signIn}>
-      <h1>{registering ? "Create your account" : "Sign in to Product Log"}</h1>
+      <div className={styles.loginBrand}><ProductMark /><strong>Product Log</strong></div>
+      <h1>{registering ? "Create your account" : "Welcome back"}</h1>
+      <p className={styles.authIntro}>{registering ? "Set up your Product Log account." : "Sign in to your Product Log workspace."}</p>
       {authReady ? <>
       <button className={styles.googleButton} disabled={googleBusy || signingIn} onClick={() => void signInWithGoogle()}>
         <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
@@ -443,19 +476,19 @@ export default function Board({ shared }: { shared: boolean }) {
   </main></div>;
 
   return <div className={styles.shell + " " + styles.workspace}>
+    <Notice notice={notice} dismiss={dismiss} />
+    <a href="#workspace-content" className={styles.skipLink}>Skip to content</a>
     <aside className={styles.sidebar} aria-label="Workspace">
-      <strong><Layers3 size={19} aria-hidden="true" /> Product Log</strong>
+      <strong><ProductMark /> Product Log</strong>
       <div className={styles.navigation}>
         <span className={styles.navLabel}>Workspace</span>
-        <div className={styles.filters} role="group" aria-label="Report status">
-          {filters.map(option => {
-            const Icon = statusIcons[option];
-            return <button key={option} type="button" aria-pressed={area === "reports" && filter === option} onClick={() => { setArea("reports"); setFilter(option); }}>
-              <Icon size={17} aria-hidden="true" /><span>{option === "All" ? "All reports" : option}</span>
-              <small aria-hidden="true">{statusCounts[option]}</small>
-            </button>;
-          })}
+        <div className={styles.filters} role="group" aria-label="Workspace pages">
+          <button type="button" aria-pressed={area === "reports"} onClick={() => setArea("reports")}><LayoutList size={18} aria-hidden="true" /><span>Reports</span><small>{reports.length}</small></button>
           <button type="button" aria-pressed={area === "clients"} onClick={() => setArea("clients")}><Building2 size={17} aria-hidden="true" /><span>Clients</span></button>
+        </div>
+        <div className={styles.projectNavigation}>
+          <div className={styles.projectHeading}><span>Projects</span><button type="button" disabled={!ready} aria-label="Create project" onClick={() => projectDialog.current?.showModal()}><Plus size={16} /></button></div>
+          {projects.length ? projects.map(project => <button key={project} type="button" aria-pressed={area === "reports" && projectFilter === project} onClick={() => { setArea("reports"); setProjectFilter(current => current === project ? "" : project); setFilter("All"); }}><Folder size={16} aria-hidden="true" /><span>{project}</span></button>) : <p>Create a project to organize your reports.</p>}
         </div>
       </div>
       <div className={styles.workspaceInfo}>
@@ -466,27 +499,41 @@ export default function Board({ shared }: { shared: boolean }) {
         }}>Sign out</button> : <span><i /> Only on this device</span>}
       </div>
     </aside>
-    <main className={styles.main}>
+    <main className={styles.main} id="workspace-content" tabIndex={-1}>
+      <div className={styles.contextBar}><span>Workspace <ChevronRight size={14} aria-hidden="true" /> <strong>{area === "clients" ? "Clients" : "Reports"}</strong></span><span className={styles.workspaceMode}><i />{shared ? "Team workspace" : "Personal workspace"}</span></div>
+      <div className={styles.pageContent} key={area}>
       {area === "clients" ? (ready ? <Clients key={userId ?? "local"} db={db} admin={admin} /> : <p role="status">{error || "Loading workspace…"}</p>) : <>
       <header className={styles.hero}>
-        <div><small>PRODUCT OPERATIONS</small><h1 id="board-title">Report board</h1>
-          <p>Track bugs, updates, and feedback across your projects.</p>
+        <div><h1 id="board-title">Reports</h1>
+          <p>A clear view of what needs attention and what's moving forward.</p>
         </div>
-        <button className={styles.primary} disabled={!ready} onClick={() => dialog.current?.showModal()}><Plus size={18} /> Add report</button>
+        <button className={styles.primary} disabled={!ready} onClick={() => dialog.current?.showModal()}><Plus size={18} aria-hidden="true" /> New report</button>
       </header>
       {error && <p className={styles.error} role="alert">{error}</p>}
       <section className={styles.panel} aria-labelledby="reports-title">
         <div className={styles.toolbar}>
-          <div><h2 id="reports-title">{filter === "All" ? "All reports" : filter + " reports"}</h2><p aria-live="polite">{ready ? `${visible.length} of ${reports.length} reports` : "Workspace activity"}</p></div>
+          <div className={styles.statusTabs} role="group" aria-label="Report status">{filters.map(option => {
+            const Icon = statusIcons[option];
+            return <button key={option} type="button" aria-pressed={filter === option} onClick={() => setFilter(option)}><Icon size={16} aria-hidden="true" />{option === "All" ? "All reports" : option}<span>{statusCounts[option]}</span></button>;
+          })}</div>
           <div>
-            <button className={styles.secondary} type="button" disabled={!ready} popoverTarget="board-manage">Manage <ChevronRight size={15} aria-hidden="true" /></button>
+            <button className={styles.secondary} type="button" disabled={!ready} popoverTarget="board-manage">Organize <ChevronDown size={15} aria-hidden="true" /></button>
             <div className={styles.manageMenu} id="board-manage" popover="auto" ref={manageMenu}>
               <button type="button" onClick={() => { manageMenu.current?.hidePopover(); projectDialog.current?.showModal(); }}>New project</button>
               <button type="button" onClick={() => { manageMenu.current?.hidePopover(); sectionDialog.current?.showModal(); }}>Add report type</button>
             </div>
           </div>
         </div>
-        <div className={styles.reportFilters}>
+        <h2 id="reports-title" className={styles.visuallyHidden}>{filter === "All" ? "All reports" : filter + " reports"}</h2>
+        <div className={styles.reportFilters + " " + styles.searchFilters}>
+          <label>Search reports<div className={styles.reportSearch}>
+            <Search size={17} aria-hidden="true" />
+            <input ref={searchInput} type="search" aria-label="Search reports" value={search}
+              onChange={event => setSearch(event.target.value)}
+              placeholder="Search titles and descriptions"
+              onKeyDown={event => { if (event.key === "Escape" && search) { event.preventDefault(); setSearch(""); } }} />
+            {search && <button type="button" aria-label="Clear search" onClick={() => { setSearch(""); searchInput.current?.focus(); }}><X size={16} aria-hidden="true" /></button>}
+          </div></label>
           <label>Report type<select value={typeFilter} onChange={event => setTypeFilter(event.target.value)}>
             <option value="">All types</option>
             {reportTypes.map(type => <option key={type}>{type}</option>)}
@@ -496,13 +543,15 @@ export default function Board({ shared }: { shared: boolean }) {
             {projects.map(project => <option key={project}>{project}</option>)}
           </select></label>
         </div>
-        {visible.length ? <ul className={styles.list}>{visible.map(report => <li key={report.id}
+        <div className={styles.resultsSummary} aria-live="polite"><span>{ready ? `${visible.length} report${visible.length === 1 ? "" : "s"}` : "Loading reports…"}{projectFilter && ` in ${projectFilter}`}</span>{(search || projectFilter || typeFilter) && <button type="button" onClick={() => { setSearch(""); setProjectFilter(""); setTypeFilter(""); }}>Reset filters <X size={13} aria-hidden="true" /></button>}</div>
+        <MotionResults changeKey={JSON.stringify([filter, typeFilter, projectFilter, search, ready])}>
+        {!ready && !error ? <ListSkeleton label="Loading reports" /> : visible.length ? <ul className={styles.list}>{visible.map(report => <li key={report.id}
           data-new={report.id === newReportId} onAnimationEnd={event => {
             if (event.target === event.currentTarget && report.id === newReportId) setNewReportId("");
           }}>
-          <button className={styles.status} disabled={!ready} aria-label={report.title + " completed"} aria-pressed={report.done}
+          <button className={styles.status} disabled={!ready || Boolean(updatingId)} aria-busy={updatingId === report.id} aria-label={report.title + " completed"} aria-pressed={report.done}
             onClick={() => void toggle(report)}>
-            {report.done ? <Check size={20} /> : <Circle size={20} />}
+            {updatingId === report.id ? <span className={styles.spinner} aria-hidden="true" /> : report.done ? <Check size={20} /> : <Circle size={20} />}
           </button>
           <button className={styles.reportLink} type="button" onClick={() => { setSelected(report); detailDialog.current?.showModal(); }}>
             <span><strong>{report.title}</strong><small>
@@ -515,14 +564,16 @@ export default function Board({ shared }: { shared: boolean }) {
           </button>
         </li>)}</ul> : <div className={styles.empty}>
           <span className={styles.emptyIcon}><Inbox size={30} aria-hidden="true" /></span>
-          <h3>{error && !ready ? "Reports unavailable" : !ready ? "Loading reports…" : reports.length ? "No matching reports" : "No reports yet"}</h3>
-          {ready && <p>{reports.length ? "Try a different filter to see more reports." : "Add a bug, an update, or user feedback."}</p>}
+          <h3>{error && !ready ? "Reports unavailable" : !ready ? "Loading reports…" : reports.length ? "No matching reports" : "Your next improvement starts here"}</h3>
+          {ready && <p>{reports.length ? "Try a different search or clear your filters." : "Add a bug, an update, or user feedback."}</p>}
           {ready && (reports.length
-            ? <button className={styles.secondary} onClick={() => { setFilter("All"); setTypeFilter(""); setProjectFilter(""); }}>Clear filters</button>
+            ? <button className={styles.secondary} onClick={() => { setFilter("All"); setTypeFilter(""); setProjectFilter(""); setSearch(""); }}>Clear search and filters</button>
             : <button className={styles.secondary} onClick={() => dialog.current?.showModal()}><Plus size={16} /> Create first report</button>)}
         </div>}
+        </MotionResults>
       </section>
       </>}
+      </div>
     </main>
     <dialog className={styles.dialog} ref={projectDialog} aria-labelledby="project-dialog-title"
       onClose={() => setProjectError("")} onCancel={event => { if (creatingProject) event.preventDefault(); }}>
@@ -591,7 +642,6 @@ export default function Board({ shared }: { shared: boolean }) {
       </form>
     </dialog>
     <dialog className={styles.dialog + " " + styles.detail} ref={detailDialog} aria-label="Report details" onClose={() => {
-      setSelected(null);
       setLinkMessage("");
       if (window.location.hash.startsWith("#report=")) history.replaceState(history.state, "", window.location.pathname + window.location.search);
     }}>

@@ -63,7 +63,7 @@ export default function ProfileOption({ db, userId, email }: {
   }
 
   return <>
-    <button className={styles.profileButton} onClick={() => dialog.current?.showModal()}>
+    <button className={styles.profileButton} aria-label={profile.name ? `Open ${profile.name}'s profile` : "Open my profile"} onClick={() => dialog.current?.showModal()}>
       <span className={styles.companyAvatar} aria-hidden="true">{profile.name ? profile.name.slice(0, 2).toUpperCase() : <UserRound size={18} />}</span>
       <span><strong>{profile.name || "My profile"}</strong><small>View and edit profile</small></span>
     </button>
@@ -75,8 +75,8 @@ export default function ProfileOption({ db, userId, email }: {
         <label>Job title<input name="job_title" defaultValue={profile.job_title} maxLength={100} disabled={!ready || busy} /></label>
         <label>Department<input name="department" defaultValue={profile.department} maxLength={100} disabled={!ready || busy} /></label>
         <label>Phone<input name="phone" type="tel" autoComplete="tel" defaultValue={profile.phone} maxLength={60} disabled={!ready || busy} /></label>
-        {message && <p role="status">{message}</p>}
-        <button className={styles.primary} disabled={!ready || busy}>{busy ? "Saving…" : "Save profile"}</button>
+        {message && <p role="status" className={message === "Profile saved." ? styles.inlineSuccess : styles.error} key={message}>{message}</p>}
+        <button className={styles.primary} disabled={!ready || busy}>{busy && <span className={styles.spinner} aria-hidden="true" />}{busy ? "Saving…" : "Save profile"}</button>
       </form>
     </dialog>
   </>;

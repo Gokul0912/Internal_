@@ -1,0 +1,8 @@
+export default function ProductMark() {
+  return <svg width="36" height="36" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+    <rect width="40" height="40" rx="10" fill="#2D3131" />
+    <path d="M10 9h15l5 5v2H10V9Z" fill="#F5F6F2" />
+    <path d="M10 19h20v6H10z" fill="#8DA574" />
+    <path d="M10 28h20v4H10z" fill="#F5F6F2" />
+  </svg>;
+}
