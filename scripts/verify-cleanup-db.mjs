@@ -41,9 +41,22 @@ try {
   const trashProjectMigration = await readFile("supabase/migrations/20261108093000_delete_projects_with_trashed_reports.sql", "utf8");
   await db.exec(trashProjectMigration);
   await db.exec(trashProjectMigration);
+  const clientPermissionMigration = await readFile("supabase/migrations/20261108100000_member_archived_client_deletion.sql", "utf8");
+  await db.exec(clientPermissionMigration);
+  await db.exec(clientPermissionMigration);
   const developer = "77777777-7777-4777-8777-777777777777";
   await db.query("insert into public.hub_members values($1,'Developer','Developer')", [developer]);
   for (const member of [author, other, admin, viewer, developer]) {
+    const archivedClient = "99999999-9999-4999-8999-999999999999";
+    await actor(admin);
+    await db.query("insert into public.clients(id,company) values($1,'Role cleanup test')", [archivedClient]);
+    await actor(member);
+    await rejected("select public.delete_archived_client($1)", [archivedClient]);
+    await actor(admin);
+    await db.query("update public.clients set archived=true where id=$1", [archivedClient]);
+    await actor(member);
+    await db.query("select public.delete_archived_client($1)", [archivedClient]);
+    assert.equal((await db.query("select count(*)::int as count from public.clients where id=$1", [archivedClient])).rows[0].count, 0);
     await actor(member);
     await db.exec("insert into public.board_projects(name) values('Unused')");
     await db.exec("select public.delete_catalog_entry('project','Unused')");
@@ -55,8 +68,10 @@ try {
   }
   await actor("88888888-8888-4888-8888-888888888888");
   await rejected("select public.delete_catalog_entry('project','Unused')");
+  await rejected("select public.delete_archived_client('99999999-9999-4999-8999-999999999999')");
   await db.exec("reset role; set role anon");
   await rejected("select public.delete_catalog_entry('project','Unused')");
+  await rejected("select public.delete_archived_client('99999999-9999-4999-8999-999999999999')");
   await actor(author);
   await db.query("insert into public.board_reports(id,title,details,type,project) values($1,'Report','','Bug report','Project')", [report]);
   await rejected("update public.board_reports set deleted_at=now() where id=$1", [report]);
@@ -98,9 +113,8 @@ try {
   await rejected("select public.delete_archived_client($1)", [client]);
   await db.query("update public.clients set archived=true where id=$1", [client]);
   await actor(author);
-  await rejected("select public.delete_archived_client($1)", [client]);
-  await actor(admin);
   await db.query("select public.delete_archived_client($1)", [client]);
+  await actor(admin);
   await db.exec("select public.delete_catalog_entry('product','Product')");
   assert.equal((await db.query("select count(*)::int as count from public.clients")).rows[0].count, 0);
   await db.exec("reset role");

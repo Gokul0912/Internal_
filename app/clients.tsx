@@ -193,7 +193,7 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
       const used = data.clients.some(client => client.products.includes(name));
       return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "Linked to clients" : "Unused"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description="This permanently deletes this unused product." disabled={used} onConfirm={() => deleteProduct(name)} /></div>;
     }) : <p>No products yet.</p>}</section></CleanupCatalog></div>}
-    {!canEdit && <p className={styles.clientSummary}>You have view-only access. Ask a workspace admin to update client details.</p>}
+    {!canEdit && <p className={styles.clientSummary}>You can view clients and delete archived entries. Ask a workspace admin to edit client details.</p>}
     <div className={styles.clientSummary}><span><strong>{data.clients.filter(client => !client.archived).length}</strong> active {data.clients.filter(client => !client.archived).length === 1 ? "client" : "clients"}</span><span><strong>{data.products.length}</strong> {data.products.length === 1 ? "product" : "products"}</span></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     <section className={styles.panel} aria-label="Client directory">
@@ -265,7 +265,7 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
         <h3>Internal notes</h3><p className={styles.description}>{selected.notes || "No notes added."}</p>
         {canEdit && <button className={styles.secondary} onClick={() => openEditor(selected)}>Edit client</button>}
         {canEdit && (selected.archived ? <button className={styles.secondary} onClick={() => void archiveClient(selected, false).catch(() => {})}>Restore client</button> : <ConfirmAction label="Archive client" title="Archive this client?" description="The client stays available under Archived and can be restored at any time." onConfirm={() => archiveClient(selected, true)} />)}
-        {selected.archived && (!db || admin) && <ConfirmAction label="Delete permanently" title="Permanently delete client?" description="All company and contact details will be removed. This cannot be undone." onConfirm={() => deleteClient(selected)} />}
+        {selected.archived && <ConfirmAction label="Delete permanently" title="Permanently delete client?" description="All company and contact details will be removed. This cannot be undone." onConfirm={() => deleteClient(selected)} />}
       </div>}
     </dialog>
   </>;
