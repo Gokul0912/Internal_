@@ -67,11 +67,11 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
 
   async function deleteClient(client: Client) {
     if (db) {
-      const result = await db.rpc("delete_archived_client", { p_id: client.id });
-      if (result.error) throw new Error(result.error.message);
+      const result = await db.rpc("delete_client", { p_id: client.id });
+      if (result.error) throw new Error(result.error.code === "PGRST202" ? "Apply the direct client deletion migration in Supabase, then refresh." : result.error.message);
     }
     const current = db ? data : readData();
-    if (!current.clients.find(item => item.id === client.id)?.archived) throw new Error("Archive this client first.");
+    if (!db && !current.clients.some(item => item.id === client.id)) throw new Error("Client unavailable or already deleted.");
     const next = { ...current, clients: current.clients.filter(item => item.id !== client.id) };
     if (!db) localStorage.setItem(storageKey, JSON.stringify(next));
     setData(next); detail.current?.close(); notify("Client permanently deleted.");
@@ -230,7 +230,7 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
     <header className={styles.hero}><div><h1>Clients</h1><p>The people and companies behind your products.</p></div>
       {canEdit && <button className={styles.primary} disabled={!ready} onClick={() => openEditor(null)}><Plus size={18} /> Add client</button>}
     </header>
-    {!canEdit && <p className={styles.clientSummary}>You can view clients and delete archived entries. Ask a workspace admin to edit client details.</p>}
+    {!canEdit && <p className={styles.clientSummary}>You can view and delete clients. Ask a workspace admin to edit client details.</p>}
     <div className={styles.clientSummary}><span><strong>{data.clients.filter(client => !client.archived).length}</strong> active {data.clients.filter(client => !client.archived).length === 1 ? "client" : "clients"}</span><span><strong>{data.products.length}</strong> {data.products.length === 1 ? "product" : "products"}</span></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     <section className={styles.panel} aria-label="Client directory">
@@ -320,7 +320,7 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
         <h3>Internal notes</h3><p className={styles.description}>{selected.notes || "No notes added."}</p>
         {canEdit && <button className={styles.secondary} onClick={() => openEditor(selected)}>Edit client</button>}
         {canEdit && (selected.archived ? <button className={styles.secondary} onClick={() => void archiveClient(selected, false).catch(() => {})}>Restore client</button> : <ConfirmAction label="Archive client" title="Archive this client?" description="The client stays available under Archived and can be restored at any time." onConfirm={() => archiveClient(selected, true)} />)}
-        {selected.archived && <ConfirmAction label="Delete permanently" title="Permanently delete client?" description="All company and contact details will be removed. This cannot be undone." onConfirm={() => deleteClient(selected)} />}
+        <ConfirmAction label="Delete client" title="Permanently delete client?" description="All company and contact details will be removed. This cannot be undone." onConfirm={() => deleteClient(selected)} />
       </div>}
     </dialog>
   </>;
