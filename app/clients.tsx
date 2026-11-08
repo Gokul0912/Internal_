@@ -6,16 +6,17 @@ import type { createClient } from "./supabase-client";
 import styles from "./board.module.css";
 import { ListSkeleton, MotionResults, Notice, useNotice } from "./ui-feedback";
 import { CleanupCatalog, ConfirmAction } from "./cleanup-controls";
+import ClientSections, { normalizeSectionName, type ClientSection } from "./client-sections";
 
 type Contact = { name: string; role: string; email: string; phone: string };
-type Client = { id: string; company: string; website: string; address: string; notes: string; archived: boolean; products: string[]; contacts: Contact[] };
-type Data = { clients: Client[]; products: string[] };
+type Client = { id: string; company: string; website: string; address: string; notes: string; archived: boolean; products: string[]; contacts: Contact[]; section_ids: string[] };
+type Data = { clients: Client[]; products: string[]; sections: ClientSection[] };
 const storageKey = "product-log.clients.v1";
 const blankContact: Contact = { name: "", role: "", email: "", phone: "" };
 function readData(): Data {
   const data = JSON.parse(localStorage.getItem(storageKey) ?? '{"clients":[],"products":[]}') as Data;
   if (!Array.isArray(data.clients) || !Array.isArray(data.products)) throw new Error("Invalid saved directory");
-  return data;
+  return { ...data, sections: Array.isArray(data.sections) ? data.sections : [], clients: data.clients.map(client => ({ ...client, section_ids: Array.isArray(client.section_ids) ? client.section_ids : [] })) };
 }
 function websiteUrl(value: string) {
   if (!value) return undefined;
@@ -26,7 +27,7 @@ function websiteUrl(value: string) {
 }
 
 export default function Clients({ db, canManage, admin }: { db: ReturnType<typeof createClient> | null; canManage: boolean; admin: boolean }) {
-  const [data, setData] = useState<Data>({ clients: [], products: [] });
+  const [data, setData] = useState<Data>({ clients: [], products: [], sections: [] });
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [formError, setFormError] = useState("");
@@ -34,6 +35,9 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
   const { notice, notify, dismiss } = useNotice();
   const [query, setQuery] = useState("");
   const [product, setProduct] = useState("");
+  const [section, setSection] = useState("");
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
+  const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [status, setStatus] = useState("active");
   const [selected, setSelected] = useState<Client | null>(null);
   const [editing, setEditing] = useState<Client | null>(null);
@@ -41,6 +45,7 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
   const editor = useRef<HTMLDialogElement>(null);
   const detail = useRef<HTMLDialogElement>(null);
   const productDialog = useRef<HTMLDialogElement>(null);
+  const sectionsDialog = useRef<HTMLDialogElement>(null);
   const canEdit = !db || canManage;
 
   async function archiveClient(client: Client, archived: boolean) {
@@ -74,14 +79,14 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
 
   async function deleteProduct(name: string) {
     const current = db ? data : readData();
-    if (current.clients.some(client => client.products.includes(name))) throw new Error("This product is still linked to clients.");
+    if (current.clients.some(client => client.products.includes(name)) || current.sections.some(section => section.product === name)) throw new Error("Remove linked clients and sections before deleting this product.");
     if (db) {
       const result = await db.rpc("delete_catalog_entry", { p_kind: "product", p_name: name });
       if (result.error) throw new Error(result.error.message);
     }
     const next = { ...current, products: current.products.filter(item => item !== name) };
     if (!db) localStorage.setItem(storageKey, JSON.stringify(next));
-    setData(next); setProduct(""); notify("Unused product deleted.");
+    setData(next); setProduct(""); setSection(""); notify("Unused product deleted.");
   }
 
   useEffect(() => {
@@ -90,12 +95,13 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
       try {
         let next: Data;
         if (db) {
-          const [clients, products] = await Promise.all([
+          const [clients, products, sections] = await Promise.all([
             db.from("clients").select("*").order("company"),
             db.from("client_products").select("name").order("name"),
+            db.from("client_sections").select("id,product,name").order("name"),
           ]);
-          if (clients.error || products.error) throw new Error();
-          next = { clients: clients.data as Client[], products: products.data.map(item => item.name) };
+          if (clients.error || products.error || sections.error) throw new Error();
+          next = { clients: clients.data as Client[], products: products.data.map(item => item.name), sections: sections.data as ClientSection[] };
         } else next = readData();
         if (active) { setData(next); setReady(true); setError(""); }
       } catch { if (active) setError("Couldn’t load clients. Check your connection and directory setup."); }
@@ -108,6 +114,8 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
 
   function openEditor(client: Client | null) {
     setEditing(client);
+    setSelectedProducts(client?.products ?? []);
+    setSelectedSections(client?.section_ids ?? []);
     setContacts(client?.contacts.length ? client.contacts.map(contact => ({ ...contact })) : [{ ...blankContact }]);
     setFormError("");
     detail.current?.close();
@@ -127,6 +135,7 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
       id: editing?.id ?? crypto.randomUUID(), company, website,
       address: String(fields.get("address")).trim(), notes: String(fields.get("notes")).trim(),
       archived: fields.get("archived") === "on", products: fields.getAll("products").map(String),
+      section_ids: selectedSections.filter(id => data.sections.some(section => section.id === id && selectedProducts.includes(section.product))),
       contacts: contacts.filter(contact => Object.values(contact).some(value => value.trim()))
         .map(contact => Object.fromEntries(Object.entries(contact).map(([key, value]) => [key, value.trim()])) as Contact),
     };
@@ -177,8 +186,40 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
     } catch { setFormError("Couldn’t create the product. It may already exist."); }
     finally { setBusy(false); }
   }
+  async function addSection(product: string, rawName: string) {
+    const name = normalizeSectionName(rawName);
+    const current = db ? data : readData();
+    if (!current.products.includes(product)) throw new Error("Choose an existing product.");
+    if (!name || name.length > 60) throw new Error("Enter a section name up to 60 characters.");
+    if (current.sections.some(section => section.product === product && section.name.toLowerCase() === name.toLowerCase())) throw new Error("This product already has a section with that name.");
+    let section: ClientSection = { id: crypto.randomUUID(), product, name };
+    if (db) {
+      const result = await db.from("client_sections").insert(section).select().single();
+      if (result.error) throw new Error(result.error.code === "23505" ? "This product already has a section with that name." : "Couldn’t create section. Check the sections migration and your permissions.");
+      section = result.data as ClientSection;
+    }
+    const next = { ...current, sections: [...current.sections, section] };
+    if (!db) localStorage.setItem(storageKey, JSON.stringify(next));
+    setData(next); notify("Section created.");
+  }
+  async function deleteSection(id: string) {
+    const current = db ? data : readData();
+    if (current.clients.some(client => client.section_ids.includes(id))) throw new Error("This section is linked to clients, including archived clients.");
+    if (db) {
+      const result = await db.rpc("delete_client_section", { p_id: id });
+      if (result.error) throw new Error(result.error.message);
+    }
+    const next = { ...current, sections: current.sections.filter(section => section.id !== id) };
+    if (!db) localStorage.setItem(storageKey, JSON.stringify(next));
+    setData(next); if (section === id) setSection(""); setSelectedSections(current => current.filter(value => value !== id)); notify("Section deleted.");
+  }
+  const assignedSectionIds = new Set(data.clients.flatMap(client => client.section_ids));
+  const sectionControls = <ClientSections dialogRef={sectionsDialog} products={data.products} sections={data.sections} canCreate={canEdit}
+    isUsed={id => assignedSectionIds.has(id)} onCreate={addSection} onDelete={deleteSection} />;
+  const sectionsById = new Map(data.sections.map(section => [section.id, section]));
   const visible = data.clients.filter(client =>
     (!product || client.products.includes(product))
+    && (!section || (section === "unassigned" ? !client.section_ids.some(id => sectionsById.get(id)?.product === product) : client.section_ids.includes(section)))
     && (status === "all" || client.archived === (status === "archived"))
     && [client.company, ...client.contacts.flatMap(contact => [contact.name, contact.email, contact.phone])]
       .join(" ").toLowerCase().includes(query.trim().toLowerCase()))
@@ -189,27 +230,29 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
     <header className={styles.hero}><div><h1>Clients</h1><p>The people and companies behind your products.</p></div>
       {canEdit && <button className={styles.primary} disabled={!ready} onClick={() => openEditor(null)}><Plus size={18} /> Add client</button>}
     </header>
-    {(!db || admin) && <div className={styles.catalogToolbar}><CleanupCatalog label="Manage products"><section className={styles.catalogGroup}><h3>Products</h3>{data.products.length ? data.products.map(name => {
-      const used = data.clients.some(client => client.products.includes(name));
-      return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "Linked to clients" : "Unused"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description="This permanently deletes this unused product." disabled={used} onConfirm={() => deleteProduct(name)} /></div>;
-    }) : <p>No products yet.</p>}</section></CleanupCatalog></div>}
     {!canEdit && <p className={styles.clientSummary}>You can view clients and delete archived entries. Ask a workspace admin to edit client details.</p>}
     <div className={styles.clientSummary}><span><strong>{data.clients.filter(client => !client.archived).length}</strong> active {data.clients.filter(client => !client.archived).length === 1 ? "client" : "clients"}</span><span><strong>{data.products.length}</strong> {data.products.length === 1 ? "product" : "products"}</span></div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
     <section className={styles.panel} aria-label="Client directory">
       <div className={styles.toolbar}><div><h2>Client directory</h2><p aria-live="polite">{visible.length} {visible.length === 1 ? "company" : "companies"}</p></div>
-        {canEdit && <button className={styles.secondary} disabled={!ready} onClick={() => { setFormError(""); productDialog.current?.showModal(); }}><Plus size={16} /> New product</button>}
+        <div className={styles.toolbarActions}>{sectionControls}
+    {(!db || admin) && <CleanupCatalog label="Manage products" description="Remove linked clients and sections before deleting a product."><section className={styles.catalogGroup}><h3>Products</h3>{data.products.length ? data.products.map(name => {
+      const used = data.clients.some(client => client.products.includes(name)) || data.sections.some(section => section.product === name);
+      return <div className={styles.catalogRow} key={name}><span>{name}<small>{used ? "Has clients or sections" : "Unused"}</small></span><ConfirmAction label="Delete" title={`Delete ${name}?`} description="This permanently deletes this unused product." disabled={used} onConfirm={() => deleteProduct(name)} /></div>;
+    }) : <p>No products yet.</p>}</section></CleanupCatalog>}
+{canEdit && <button className={styles.secondary} disabled={!ready} onClick={() => { setFormError(""); productDialog.current?.showModal(); }}><Plus size={16} /> New product</button>}</div>
       </div>
-      <div className={styles.clientFilters}>
+      <div className={styles.clientFilters + " " + styles.sectionFilters}>
         <label>Search<input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Company or contact" /></label>
-        <label>Product<select value={product} onChange={event => setProduct(event.target.value)}><option value="">All products</option>{data.products.map(name => <option key={name}>{name}</option>)}</select></label>
+        <label>Product<select value={product} onChange={event => { setProduct(event.target.value); setSection(""); }}><option value="">All products</option>{data.products.map(name => <option key={name}>{name}</option>)}</select></label>
+        <label>Section<select value={section} disabled={!product} onChange={event => setSection(event.target.value)}><option value="">{product ? "All sections" : "Choose a product first"}</option><option value="unassigned">No section</option>{data.sections.filter(section => section.product === product).map(section => <option key={section.id} value={section.id}>{section.name}</option>)}</select></label>
         <label>Status<select value={status} onChange={event => setStatus(event.target.value)}><option value="active">Active</option><option value="archived">Archived</option><option value="all">All clients</option></select></label>
       </div>
-      <MotionResults changeKey={JSON.stringify([query, product, status, ready])}>
+      <MotionResults changeKey={JSON.stringify([query, product, section, status, ready])}>
       {!ready && !error ? <ListSkeleton label="Loading clients" /> : visible.length ? <ul className={styles.list}>{visible.map(client => <li key={client.id}>
         <span className={styles.companyAvatar} aria-hidden="true">{client.company.slice(0, 2).toUpperCase()}</span>
         <button className={styles.reportLink} onClick={() => { setSelected(client); detail.current?.showModal(); }}>
-          <span><strong>{client.company}</strong><small>{client.contacts[0]?.name ?? "No contact added"} · {client.products.join(", ") || "No product linked"}</small></span><ChevronRight size={18} />
+          <span><strong>{client.company}</strong><small>{client.contacts[0]?.name ?? "No contact added"} · {client.products.join(", ") || "No product linked"}</small>{client.section_ids.length > 0 && <small>{client.section_ids.map(id => sectionsById.get(id)).filter((entry): entry is ClientSection => Boolean(entry)).map(entry => <span className={styles.typeChip} key={entry.id}>{client.products.length > 1 ? entry.product + ": " : ""}{entry.name}</span>)}</small>}</span><ChevronRight size={18} />
         </button>
       </li>)}</ul> : <div className={styles.empty}><Building2 size={28} /><h3>{error ? "Clients unavailable" : data.clients.length ? "No matching clients" : "Your client directory starts here"}</h3><p>{error ? "Refresh to try loading the directory again." : data.clients.length ? "Try another product, status, or search." : "Add your first company, then link the products they use."}</p></div>}
       </MotionResults>
@@ -221,7 +264,18 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
           <label>Company name<input name="company" defaultValue={editing?.company} autoFocus required maxLength={120} /></label>
           <label>Website<input name="website" type="url" defaultValue={editing?.website} maxLength={300} placeholder="https://example.com" /></label>
           <fieldset className={styles.productChoices}><legend>Products</legend>
-            {data.products.length ? data.products.map(name => <label key={name}><input name="products" type="checkbox" value={name} defaultChecked={editing?.products.includes(name)} />{name}</label>) : <p>Create a product from the directory to link it here.</p>}
+            {data.products.length ? data.products.map(name => <label key={name}><input name="products" type="checkbox" value={name} checked={selectedProducts.includes(name)} onChange={event => {
+              const checked = event.currentTarget.checked;
+              setSelectedProducts(current => checked ? [...current, name] : current.filter(value => value !== name));
+              if (!checked) setSelectedSections(current => current.filter(id => sectionsById.get(id)?.product !== name));
+            }} />{name}</label>) : <p>Create a product from the directory to link it here.</p>}
+          </fieldset>
+          <fieldset className={styles.productChoices}><legend>Sections (optional)</legend>
+            {!selectedProducts.length && <p>Select a product to choose its sections.</p>}
+            {selectedProducts.map(product => <div className={styles.productSectionGroup} key={product}><strong>{product}</strong>{data.sections.filter(section => section.product === product).map(section => <label key={section.id}><input type="checkbox" checked={selectedSections.includes(section.id)} onChange={event => { const checked = event.currentTarget.checked; setSelectedSections(current => checked ? [...current, section.id] : current.filter(id => id !== section.id)); }} />{section.name}</label>)}
+              {!data.sections.some(section => section.product === product) && <p>No sections yet. Create one using Manage sections.</p>}
+            </div>)}
+            <button className={styles.secondary} type="button" onClick={() => sectionsDialog.current?.showModal()}>Manage sections</button>
           </fieldset>
           <details open={Boolean(editing)}><summary>Contacts and internal details</summary><div className={styles.clientFields}>
             {contacts.map((contact, index) => <fieldset key={index} className={styles.contactFields}><legend>{index === 0 ? "Primary contact" : "Contact " + (index + 1)}</legend>
@@ -253,6 +307,7 @@ export default function Clients({ db, canManage, admin }: { db: ReturnType<typeo
       {selected && <div className={styles.clientFields}>
         <span className={styles.badge} data-done={!selected.archived}>{selected.archived ? "Archived" : "Active"}</span>
         <h3>Products</h3><p>{selected.products.join(", ") || "No products linked"}</p>
+        <h3>Sections</h3><p>{selected.section_ids.map(id => sectionsById.get(id)).filter((entry): entry is ClientSection => Boolean(entry)).map(entry => `${entry.product}: ${entry.name}`).join(", ") || "No sections assigned"}</p>
         {websiteUrl(selected.website) && <a href={websiteUrl(selected.website)} target="_blank" rel="noopener noreferrer">{selected.website}</a>}
         <h3>Contacts</h3>
         {selected.contacts.map((contact, index) => <article key={index} className={styles.contactCard}>
